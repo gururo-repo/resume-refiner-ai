@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, FileText, Brain, Target, TrendingUp, Download, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { analyzeResume, generateReport } from '../api';
 
 const AnalyzerPage = () => {
   const [resumeFile, setResumeFile] = useState(null);
@@ -29,27 +30,8 @@ const AnalyzerPage = () => {
     setError('');
 
     try {
-      const formData = new FormData();
-      
-      if (uploadMethod === 'file' && resumeFile) {
-        formData.append('resume_file', resumeFile);
-      } else {
-        formData.append('resume_text', resumeText);
-      }
-      
-      formData.append('job_description', jobDescription);
-
-      const response = await fetch('http://localhost:5000/api/analyze-resume', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Analysis failed');
-      }
-
-      const data = await response.json();
-      setResults(data);
+      const response = await analyzeResume(resumeFile, resumeText, jobDescription);
+      setResults(response.data);
     } catch (err) {
       setError('Failed to analyze resume. Please try again.');
       console.error('Analysis error:', err);
@@ -62,24 +44,12 @@ const AnalyzerPage = () => {
     if (!results) return;
 
     try {
-      const response = await fetch('http://localhost:5000/api/generate-report', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(results),
-      });
-
-      if (!response.ok) {
-        throw new Error('Report generation failed');
-      }
-
-      const data = await response.json();
+      const response = await generateReport(results);
       
       // Download PDF
       const link = document.createElement('a');
-      link.href = `data:application/pdf;base64,${data.pdf_content}`;
-      link.download = data.filename;
+      link.href = `data:application/pdf;base64,${response.data.pdf_content}`;
+      link.download = response.data.filename;
       link.click();
     } catch (err) {
       setError('Failed to generate report');
@@ -257,84 +227,81 @@ const AnalyzerPage = () => {
 
               <Card className="glass-card text-center">
                 <CardContent className="pt-6">
-                  <CheckCircle className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Keywords</h3>
-                  <div className="text-3xl font-bold text-cyan-400">
-                    {results.job_keywords?.length || 0}
-                  </div>
-                  <p className="text-sm text-gray-400 mt-2">
-                    Identified
-                  </p>
+                  <Brain className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">AI Analysis</h3>
+                  <button
+                    onClick={handleDownloadReport}
+                    className="mt-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2 mx-auto"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Report
+                  </button>
                 </CardContent>
               </Card>
             </div>
 
             {/* Detailed Analysis */}
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Skills Analysis */}
-              {results.skill_analysis && (
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="text-cyan-100">Skills Analysis</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {results.skill_analysis.match_analysis && (
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="font-semibold text-green-400 mb-2">Matched Skills</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {results.skill_analysis.match_analysis.matched_skills?.slice(0, 10).map((skill, index) => (
-                              <span key={index} className="px-2 py-1 bg-green-900/50 text-green-300 rounded text-sm">
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-semibold text-red-400 mb-2">Missing Skills</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {results.skill_analysis.match_analysis.missing_skills?.slice(0, 10).map((skill, index) => (
-                              <span key={index} className="px-2 py-1 bg-red-900/50 text-red-300 rounded text-sm">
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Recommendations */}
+              {/* Strengths */}
               <Card className="glass-card">
                 <CardHeader>
-                  <CardTitle className="text-cyan-100">Recommendations</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-green-400">
+                    <CheckCircle className="h-5 w-5" />
+                    Strengths
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {results.recommendations?.slice(0, 5).map((rec, index) => (
-                      <div key={index} className="p-3 bg-gray-800/50 rounded-lg">
-                        <h4 className="font-semibold text-cyan-300 mb-1">{rec.title}</h4>
-                        <p className="text-sm text-gray-300">{rec.description}</p>
-                      </div>
+                  <ul className="space-y-2">
+                    {results.strengths.map((strength, index) => (
+                      <li key={index} className="flex items-start gap-2">
+                        <CheckCircle className="h-5 w-5 text-green-400 mt-1" />
+                        <span>{strength}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
+                </CardContent>
+              </Card>
+
+              {/* Areas for Improvement */}
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-yellow-400">
+                    <AlertCircle className="h-5 w-5" />
+                    Areas for Improvement
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {results.weaknesses.map((weakness, index) => (
+                      <li key={index} className="flex items-start gap-2">
+                        <AlertCircle className="h-5 w-5 text-yellow-400 mt-1" />
+                        <span>{weakness}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Download Report Button */}
-            <div className="text-center">
-              <button
-                onClick={handleDownloadReport}
-                className="btn-primary"
-              >
-                <Download className="h-5 w-5" />
-                Download Full Report
-              </button>
-            </div>
+            {/* Recommendations */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-cyan-400">
+                  <Brain className="h-5 w-5" />
+                  Recommendations
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {results.recommendations.map((rec, index) => (
+                    <li key={index} className="flex items-start gap-2">
+                      <Brain className="h-5 w-5 text-cyan-400 mt-1" />
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

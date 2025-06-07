@@ -8,6 +8,7 @@ import joblib
 from sklearn.metrics.pairwise import cosine_similarity
 import scipy.sparse as sparse
 from sentence_transformers import SentenceTransformer
+from difflib import SequenceMatcher
 
 def _check_section_headers(resume_text, section_keywords):
     """Helper function to check for section headers"""
@@ -26,29 +27,93 @@ def _check_section_headers(resume_text, section_keywords):
 def check_sections(resume_text):
     """Calculate score based on presence of essential resume sections with improved detection"""
     sections = {
-        'experience': ['experience', 'work history', 'professional background', 'employment', 'work experience', 'career history'],
-        'education': ['education', 'academic', 'qualification', 'degree', 'university', 'college', 'school', 'certification'],
-        'skills': ['skills', 'abilities', 'competencies', 'expertise', 'proficiencies', 'technical skills', 'core competencies'],
-        'summary': ['summary', 'profile', 'objective', 'about me', 'professional summary', 'career objective', 'professional profile']
+        'experience': [
+            'experience', 'work history', 'professional background', 'employment', 
+            'work experience', 'career history', 'professional experience',
+            'employment history', 'work background', 'professional journey'
+        ],
+        'education': [
+            'education', 'academic', 'qualification', 'degree', 'university', 
+            'college', 'school', 'certification', 'academic background',
+            'educational background', 'academic qualifications', 'degrees',
+            'certifications', 'training', 'courses'
+        ],
+        'skills': [
+            'skills', 'abilities', 'competencies', 'expertise', 'proficiencies', 
+            'technical skills', 'core competencies', 'technical expertise',
+            'professional skills', 'key skills', 'skill set', 'capabilities',
+            'technical proficiencies', 'areas of expertise'
+        ],
+        'summary': [
+            'summary', 'profile', 'objective', 'about me', 'professional summary', 
+            'career objective', 'professional profile', 'executive summary',
+            'career summary', 'personal statement', 'professional overview',
+            'career profile', 'professional statement'
+        ],
+        'projects': [
+            'projects', 'portfolio', 'project experience', 'project history',
+            'project work', 'project portfolio', 'project showcase',
+            'project achievements', 'project highlights', 'project details'
+        ],
+        'achievements': [
+            'achievements', 'accomplishments', 'awards', 'recognition',
+            'honors', 'certifications', 'professional achievements',
+            'key achievements', 'notable accomplishments', 'awards and recognition'
+        ]
     }
     
-  
     section_scores = {}
     for section_name, section_keywords in sections.items():
+        # Check for section headers with improved patterns
+        header_patterns = [
+            fr'\b({keyword})\s*:',  
+            fr'\n\s*({keyword})\s*\n',  
+            fr'\n\s*({keyword})\s*[^\n]*\n\s*[-•\*]',
+            fr'\n\s*({keyword})\s*[^\n]*\n\s*[A-Z]',
+            fr'\n\s*({keyword})\s*[^\n]*\n\s*\d+\.'
+        ]
         
-        header_detected = _check_section_headers(resume_text, section_keywords)
+        header_detected = False
+        for keyword in section_keywords:
+            for pattern in header_patterns:
+                if re.search(pattern.format(keyword=keyword), resume_text, re.IGNORECASE):
+                    header_detected = True
+                    break
+            if header_detected:
+                break
         
-        content_detected = any(kw in resume_text for kw in section_keywords)
-     
+        # Check for content with improved detection
+        content_detected = False
+        for keyword in section_keywords:
+            if keyword in resume_text.lower():
+                # Check if keyword is part of a meaningful section
+                context = re.search(fr'\n.*?{keyword}.*?\n', resume_text, re.IGNORECASE)
+                if context and len(context.group().strip()) > len(keyword) + 5:
+                    content_detected = True
+                    break
+        
+        # Calculate section score
         if header_detected:
-            section_scores[section_name] = 1.0  
+            section_scores[section_name] = 1.0
         elif content_detected:
-            section_scores[section_name] = 0.7 
+            section_scores[section_name] = 0.7
         else:
-            section_scores[section_name] = 0.0  
+            section_scores[section_name] = 0.0
     
-    total_score = sum(section_scores.values())
-    return total_score / len(sections)
+    # Calculate weighted total score
+    weights = {
+        'experience': 0.25,
+        'education': 0.20,
+        'skills': 0.20,
+        'summary': 0.15,
+        'projects': 0.10,
+        'achievements': 0.10
+    }
+    
+    total_score = sum(section_scores.get(section, 0) * weight 
+                     for section, weight in weights.items())
+    
+    return total_score
 
 def check_keywords(resume_text, job_keywords):
     """Calculate score based on keyword matches with improved relevance detection"""
@@ -58,39 +123,100 @@ def check_keywords(resume_text, job_keywords):
     # Preprocess resume text for better matching
     clean_resume = re.sub(r'[.,;:!?()\[\]{}]', ' ', resume_text)
     clean_resume = re.sub(r'\s+', ' ', clean_resume).strip()
- 
-    keyword_importance = {
-        kw.lower(): 1.0 + (0.5 if any(tech in kw.lower() for tech in ['python', 'java', 'javascript', 'react', 'aws', 'cloud', 'ml', 'ai']) else 0)
-        for kw in job_keywords
-    }
+    
+    # Enhanced keyword importance weights
+    keyword_importance = {}
+    for kw in job_keywords:
+        base_weight = 1.0
+        
+        # Technical skills get higher weight
+        if any(tech in kw.lower() for tech in [
+            'python', 'java', 'javascript', 'react', 'aws', 'cloud', 'ml', 'ai',
+            'docker', 'kubernetes', 'sql', 'nosql', 'devops', 'security'
+        ]):
+            base_weight += 0.5
+        
+        # Framework and library skills
+        if any(fw in kw.lower() for fw in [
+            'react', 'angular', 'vue', 'django', 'flask', 'spring', 'express',
+            'tensorflow', 'pytorch', 'scikit-learn'
+        ]):
+            base_weight += 0.3
+        
+        # Cloud and infrastructure skills
+        if any(cloud in kw.lower() for cloud in [
+            'aws', 'azure', 'gcp', 'cloud', 's3', 'ec2', 'lambda', 'kubernetes',
+            'docker', 'terraform'
+        ]):
+            base_weight += 0.4
+        
+        keyword_importance[kw.lower()] = base_weight
     
     total_weight = sum(keyword_importance.values())
     
-    # Check for exact and contextual matches
+    # Enhanced keyword matching
     matches = {}
     for kw, weight in keyword_importance.items():
-
+        # Exact match
         if f" {kw} " in f" {clean_resume} ":
             matches[kw] = weight
-        elif ' ' in kw:
+            continue
+        
+        # Contextual match for multi-word keywords
+        if ' ' in kw:
             kw_parts = kw.split()
-           
+            
+            # All parts present in close proximity
             if all(part in clean_resume for part in kw_parts if len(part) > 3):
-                matches[kw] = weight * 0.8  
-            elif len(kw_parts) > 2 and sum(1 for part in kw_parts if part in clean_resume and len(part) > 3) >= len(kw_parts) * 0.7:
-                matches[kw] = weight * 0.6  
+                # Check if parts are within 5 words of each other
+                parts_positions = [clean_resume.find(part) for part in kw_parts if len(part) > 3]
+                if all(pos != -1 for pos in parts_positions):
+                    max_distance = max(parts_positions) - min(parts_positions)
+                    if max_distance < 50:  # Words are close to each other
+                        matches[kw] = weight * 0.9
+                        continue
+            
+            # Most parts present
+            if len(kw_parts) > 2 and sum(1 for part in kw_parts if part in clean_resume and len(part) > 3) >= len(kw_parts) * 0.7:
+                matches[kw] = weight * 0.7
+                continue
+        
+        # Fuzzy match for single words
+        if len(kw.split()) == 1 and len(kw) > 3:
+            words = clean_resume.split()
+            for word in words:
+                if len(word) > 3 and get_skill_similarity(kw, word) > 0.8:
+                    matches[kw] = weight * 0.6
+                    break
     
-    # Calculate weighted score
+    # Calculate weighted score with density bonus
     if total_weight == 0:
         return 0
     
     weighted_score = sum(matches.values()) / total_weight
     
-   
+    # Enhanced density bonus
     keyword_density = len(matches) / max(1, len(job_keywords))
-    density_bonus = min(0.2, keyword_density * 0.4)  # Up to 20% bonus
+    density_bonus = min(0.3, keyword_density * 0.5)  # Up to 30% bonus
     
-    return min(1.0, weighted_score + density_bonus)
+    # Context bonus
+    context_bonus = 0.0
+    if len(matches) > 0:
+        # Check if matched keywords appear in relevant sections
+        relevant_sections = ['experience', 'skills', 'projects']
+        for section in relevant_sections:
+            section_match = re.search(fr'\n\s*{section}.*?\n', resume_text, re.IGNORECASE)
+            if section_match:
+                section_text = resume_text[section_match.start():section_match.end()].lower()
+                section_matches = sum(1 for kw in matches if kw in section_text)
+                if section_matches > 0:
+                    context_bonus += 0.1  # 10% bonus per relevant section
+    
+    return min(1.0, weighted_score + density_bonus + context_bonus)
+
+def get_skill_similarity(skill1: str, skill2: str) -> float:
+    """Calculate similarity between two skills using SequenceMatcher."""
+    return SequenceMatcher(None, skill1.lower(), skill2.lower()).ratio()
 
 def check_formatting(resume_text):
     """Calculate score based on resume formatting with improved analysis"""

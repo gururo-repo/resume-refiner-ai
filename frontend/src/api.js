@@ -2,6 +2,21 @@ import axios from 'axios'
 
 const API = axios.create({ baseURL: 'http://localhost:5000' })
 
+export const analyzeResume = (resumeFile, resumeText, jobDescription) => {
+  const form = new FormData()
+  if (resumeFile) {
+    form.append('resume_file', resumeFile)
+  } else {
+    form.append('resume_text', resumeText)
+  }
+  form.append('job_description', jobDescription)
+  return API.post('/api/analyze-resume', form)
+}
+
+export const generateReport = (analysisData) => {
+  return API.post('/api/generate-report', analysisData)
+}
+
 export const uploadResume = file => {
   const form = new FormData()
   form.append('resume', file)

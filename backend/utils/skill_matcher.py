@@ -9,27 +9,63 @@ SKILLS_DB = {
     'programming': [
         'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'ruby', 'php', 'swift', 'kotlin',
         'go', 'rust', 'scala', 'perl', 'r', 'matlab', 'sql', 'nosql', 'mongodb', 'postgresql',
-        'mysql', 'oracle', 'sqlite'
+        'mysql', 'oracle', 'sqlite', 'graphql', 'rest api', 'soap', 'xml', 'json', 'yaml',
+        'bash', 'powershell', 'shell scripting', 'assembly', 'fortran', 'cobol'
     ],
     'frameworks': [
         'react', 'angular', 'vue', 'django', 'flask', 'spring', 'express', 'node.js', 'laravel',
         'ruby on rails', 'asp.net', 'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas',
-        'numpy', 'bootstrap', 'tailwind', 'material-ui'
+        'numpy', 'bootstrap', 'tailwind', 'material-ui', 'next.js', 'nuxt.js', 'gatsby',
+        'fastapi', 'fastify', 'nest.js', 'jquery', 'redux', 'mobx', 'vuex', 'graphql',
+        'apollo', 'jest', 'mocha', 'chai', 'cypress', 'selenium', 'pytest', 'junit'
     ],
     'cloud': [
         'aws', 'azure', 'gcp', 'cloud', 's3', 'ec2', 'lambda', 'dynamodb', 'rds', 'cloudfront',
         'route53', 'vpc', 'iam', 'kubernetes', 'docker', 'terraform', 'ansible', 'jenkins',
-        'ci/cd', 'devops'
+        'ci/cd', 'devops', 'elastic beanstalk', 'cloudformation', 'cloudwatch', 'sns', 'sqs',
+        'api gateway', 'cognito', 'cloudtrail', 'waf', 'shield', 'cloudfront', 'elasticache',
+        'redshift', 'aurora', 'neptune', 'documentdb', 'opensearch', 'elasticsearch',
+        'eks', 'ecs', 'fargate', 'app runner', 'lambda', 'step functions', 'eventbridge'
     ],
     'data_science': [
         'machine learning', 'deep learning', 'ai', 'artificial intelligence', 'nlp', 'computer vision',
         'data analysis', 'data visualization', 'statistics', 'big data', 'hadoop', 'spark',
-        'tableau', 'power bi', 'excel', 'r', 'python'
+        'tableau', 'power bi', 'excel', 'r', 'python', 'pandas', 'numpy', 'scipy',
+        'scikit-learn', 'tensorflow', 'pytorch', 'keras', 'opencv', 'nltk', 'spacy',
+        'bert', 'gpt', 'transformers', 'xgboost', 'lightgbm', 'catboost', 'h2o',
+        'apache spark', 'apache kafka', 'apache flink', 'apache beam', 'apache airflow',
+        'dbt', 'snowflake', 'databricks', 'looker', 'qlik', 'metabase', 'superset'
+    ],
+    'devops': [
+        'docker', 'kubernetes', 'jenkins', 'gitlab ci', 'github actions', 'circleci',
+        'travis ci', 'terraform', 'ansible', 'puppet', 'chef', 'prometheus', 'grafana',
+        'elk stack', 'splunk', 'datadog', 'new relic', 'nagios', 'zabbix', 'consul',
+        'vault', 'istio', 'linkerd', 'helm', 'argo', 'flux', 'spinnaker', 'rancher',
+        'aws codepipeline', 'azure devops', 'gcp cloud build'
+    ],
+    'security': [
+        'security', 'cybersecurity', 'penetration testing', 'vulnerability assessment',
+        'security compliance', 'gdpr', 'hipaa', 'pci dss', 'iso 27001', 'nist',
+        'owasp', 'security architecture', 'network security', 'application security',
+        'cloud security', 'devsecops', 'siem', 'soar', 'waf', 'ids', 'ips',
+        'firewall', 'vpn', 'encryption', 'authentication', 'authorization', 'iam',
+        'zero trust', 'threat modeling', 'risk assessment'
     ],
     'soft_skills': [
         'leadership', 'communication', 'teamwork', 'problem solving', 'critical thinking',
         'project management', 'agile', 'scrum', 'time management', 'adaptability',
-        'creativity', 'collaboration', 'presentation', 'negotiation'
+        'creativity', 'collaboration', 'presentation', 'negotiation', 'mentoring',
+        'coaching', 'conflict resolution', 'emotional intelligence', 'decision making',
+        'strategic thinking', 'innovation', 'customer focus', 'business acumen',
+        'stakeholder management', 'change management', 'risk management'
+    ],
+    'tools': [
+        'git', 'github', 'gitlab', 'bitbucket', 'jira', 'confluence', 'trello',
+        'asana', 'slack', 'microsoft teams', 'zoom', 'postman', 'swagger',
+        'vscode', 'intellij', 'eclipse', 'vim', 'emacs', 'sublime text',
+        'atom', 'notepad++', 'figma', 'sketch', 'adobe xd', 'invision',
+        'zeplin', 'maven', 'gradle', 'npm', 'yarn', 'pip', 'conda',
+        'docker compose', 'kubernetes dashboard', 'kubectl', 'helm'
     ]
 }
 
