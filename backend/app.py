@@ -1,111 +1,97 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+import os
+import json
+import traceback
+from utils.resume_parser import parse_resume_file
+from utils.genai_suggester import ResumeImprover
 from utils.match_score import get_match_score
 from utils.role_predictor import predict_roles
 from utils.skill_matcher import extract_and_match_skills
-from utils.genai_suggester import analyze_resume
-from utils.resume_parser import parse_resume_file
-from utils.model_loader import match_model, feature_scaler, model_features, sentence_transformer
-import base64
-from reportlab.pdfgen import canvas
-from io import BytesIO
+from report_generator import generate_report
 
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/api/analyze-resume', methods=['POST'])
+# Initialize ResumeImprover
+resume_improver = ResumeImprover()
+
+@app.route('/api/analyze', methods=['POST'])
 def analyze_resume_endpoint():
     try:
-        # Handle file upload
-        if 'resume_file' in request.files:
-            file = request.files['resume_file']
-            resume_text = parse_resume_file(file)
-        else:
-            resume_text = request.form.get('resume_text')
+        if 'resume' not in request.files:
+            return jsonify({'error': 'No resume file provided'}), 400
         
-        job_description = request.form.get('job_description')
+        resume_file = request.files['resume']
+        job_description = request.form.get('job_description', '')
         
-        if not resume_text or not job_description:
-            return jsonify({'error': 'Missing resume or job description'}), 400
+        if not job_description:
+            return jsonify({'error': 'No job description provided'}), 400
         
-        # Get match score and analysis
+        # Parse resume file
+        resume_text = parse_resume_file(resume_file)
+        
+        # Get match score
         match_analysis = get_match_score(resume_text, job_description)
         
         # Get role predictions
         roles = predict_roles(resume_text)
         
-        # Get skill analysis
+        # Get skill matches
         skill_analysis = extract_and_match_skills(resume_text, job_description)
         
-        # Get AI suggestions
-        ai_suggestions = analyze_resume(resume_text, job_description)
+        # Get ATS analysis and improvements
+        ats_analysis = resume_improver.analyze_ats_compatibility(resume_text, job_description)
+        improvements = resume_improver.improve_resume(resume_text, job_description)
         
-        # Combine all results
-        results = {
-            'ats_score': match_analysis.get('ats_score', 0),
-            'match_score': match_analysis.get('match_score', 0),
-            'role_match': roles,
-            'skill_analysis': skill_analysis,
-            'strengths': match_analysis.get('strengths', []),
-            'weaknesses': match_analysis.get('weaknesses', []),
-            'recommendations': match_analysis.get('recommendations', [])
+        # Combine all analyses
+        analysis = {
+            'match_score': match_analysis['match_score'],
+            'ats_score': ats_analysis['analysis']['ats_score'],
+            'strengths': match_analysis['strengths'],
+            'weaknesses': match_analysis['weaknesses'],
+            'recommendations': match_analysis['recommendations'],
+            'predicted_roles': roles,
+            'skill_matches': skill_analysis['matched_skills'],
+            'missing_skills': skill_analysis['missing_skills'],
+            'improved_resume': improvements['improved_resume']
         }
         
-        return jsonify(results)
+        return jsonify(analysis)
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in analyze_resume_endpoint: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/generate-report', methods=['POST'])
-def generate_report():
+def generate_report_endpoint():
     try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
         
-        # Create PDF
-        buffer = BytesIO()
-        p = canvas.Canvas(buffer)
+        # Validate required fields
+        required_fields = ['match_score', 'ats_score', 'strengths', 'weaknesses', 'recommendations']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
         
-        # Add content to PDF
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, 800, "Resume Analysis Report")
+        # Generate PDF report
+        pdf_path = generate_report(data)
         
-        p.setFont("Helvetica", 12)
-        p.drawString(50, 750, f"ATS Score: {data.get('ats_score', 0)}%")
-        p.drawString(50, 730, f"Match Score: {data.get('match_score', 0)}%")
-        
-        # Add strengths
-        p.drawString(50, 700, "Strengths:")
-        y = 680
-        for strength in data.get('strengths', []):
-            p.drawString(70, y, f"• {strength}")
-            y -= 20
-        
-        # Add weaknesses
-        p.drawString(50, y - 20, "Areas for Improvement:")
-        y -= 40
-        for weakness in data.get('weaknesses', []):
-            p.drawString(70, y, f"• {weakness}")
-            y -= 20
-        
-        # Add recommendations
-        p.drawString(50, y - 20, "Recommendations:")
-        y -= 40
-        for rec in data.get('recommendations', []):
-            p.drawString(70, y, f"• {rec}")
-            y -= 20
-        
-        p.save()
-        
-        # Get PDF content
-        pdf_content = base64.b64encode(buffer.getvalue()).decode()
-        
-        return jsonify({
-            'pdf_content': pdf_content,
-            'filename': 'resume_analysis_report.pdf'
-        })
+        # Send the PDF file
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name='resume_analysis_report.pdf'
+        )
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in generate_report_endpoint: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 

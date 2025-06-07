@@ -5,12 +5,10 @@ import { analyzeResume, generateReport } from '../api';
 
 const AnalyzerPage = () => {
   const [resumeFile, setResumeFile] = useState(null);
-  const [resumeText, setResumeText] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState('');
-  const [uploadMethod, setUploadMethod] = useState('file'); // 'file' or 'text'
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -21,8 +19,8 @@ const AnalyzerPage = () => {
   };
 
   const handleAnalyze = async () => {
-    if ((!resumeFile && !resumeText.trim()) || !jobDescription.trim()) {
-      setError('Please provide both a resume and job description');
+    if (!resumeFile || !jobDescription.trim()) {
+      setError('Please provide both a resume file and job description');
       return;
     }
 
@@ -30,10 +28,10 @@ const AnalyzerPage = () => {
     setError('');
 
     try {
-      const response = await analyzeResume(resumeFile, resumeText, jobDescription);
+      const response = await analyzeResume(resumeFile, jobDescription);
       setResults(response.data);
     } catch (err) {
-      setError('Failed to analyze resume. Please try again.');
+      setError(err.response?.data?.error || 'Failed to analyze resume. Please try again.');
       console.error('Analysis error:', err);
     } finally {
       setIsAnalyzing(false);
@@ -46,13 +44,20 @@ const AnalyzerPage = () => {
     try {
       const response = await generateReport(results);
       
+      // Create blob from response
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      
       // Download PDF
       const link = document.createElement('a');
-      link.href = `data:application/pdf;base64,${response.data.pdf_content}`;
-      link.download = response.data.filename;
+      link.href = url;
+      link.download = 'resume_analysis_report.pdf';
       link.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Failed to generate report');
+      setError(err.response?.data?.error || 'Failed to generate report');
       console.error('Report error:', err);
     }
   };
@@ -91,58 +96,25 @@ const AnalyzerPage = () => {
                 Resume Upload
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Upload Method Toggle */}
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => setUploadMethod('file')}
-                  className={`px-4 py-2 rounded-lg transition-colors ${
-                    uploadMethod === 'file'
-                      ? 'bg-cyan-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  Upload File
-                </button>
-                <button
-                  onClick={() => setUploadMethod('text')}
-                  className={`px-4 py-2 rounded-lg transition-colors ${
-                    uploadMethod === 'text'
-                      ? 'bg-cyan-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  Paste Text
-                </button>
-              </div>
-
-              {uploadMethod === 'file' ? (
-                <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-cyan-500 transition-colors">
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="resume-upload"
-                  />
-                  <label htmlFor="resume-upload" className="cursor-pointer">
-                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-300 mb-2">
-                      {resumeFile ? resumeFile.name : 'Click to upload resume'}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Supports PDF, DOC, DOCX, TXT
-                    </p>
-                  </label>
-                </div>
-              ) : (
-                <textarea
-                  value={resumeText}
-                  onChange={(e) => setResumeText(e.target.value)}
-                  placeholder="Paste your resume text here..."
-                  className="w-full h-40 p-4 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-cyan-500 focus:outline-none"
+            <CardContent>
+              <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-cyan-500 transition-colors">
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="resume-upload"
                 />
-              )}
+                <label htmlFor="resume-upload" className="cursor-pointer">
+                  <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">
+                    {resumeFile ? resumeFile.name : 'Click to upload resume'}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Supports PDF, DOC, DOCX, TXT
+                  </p>
+                </label>
+              </div>
             </CardContent>
           </Card>
 
@@ -177,7 +149,7 @@ const AnalyzerPage = () => {
         <div className="text-center mb-8">
           <button
             onClick={handleAnalyze}
-            disabled={isAnalyzing || (!resumeFile && !resumeText.trim()) || !jobDescription.trim()}
+            disabled={isAnalyzing || !resumeFile || !jobDescription.trim()}
             className="btn-primary text-lg px-8 py-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isAnalyzing ? (
@@ -254,7 +226,7 @@ const AnalyzerPage = () => {
                   <ul className="space-y-2">
                     {results.strengths.map((strength, index) => (
                       <li key={index} className="flex items-start gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-400 mt-1" />
+                        <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
                         <span>{strength}</span>
                       </li>
                     ))}
@@ -265,7 +237,7 @@ const AnalyzerPage = () => {
               {/* Areas for Improvement */}
               <Card className="glass-card">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-yellow-400">
+                  <CardTitle className="flex items-center gap-2 text-red-400">
                     <AlertCircle className="h-5 w-5" />
                     Areas for Improvement
                   </CardTitle>
@@ -274,7 +246,7 @@ const AnalyzerPage = () => {
                   <ul className="space-y-2">
                     {results.weaknesses.map((weakness, index) => (
                       <li key={index} className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-yellow-400 mt-1" />
+                        <AlertCircle className="h-5 w-5 text-red-400 mt-1 flex-shrink-0" />
                         <span>{weakness}</span>
                       </li>
                     ))}
@@ -295,13 +267,85 @@ const AnalyzerPage = () => {
                 <ul className="space-y-2">
                   {results.recommendations.map((rec, index) => (
                     <li key={index} className="flex items-start gap-2">
-                      <Brain className="h-5 w-5 text-cyan-400 mt-1" />
+                      <Brain className="h-5 w-5 text-cyan-400 mt-1 flex-shrink-0" />
                       <span>{rec}</span>
                     </li>
                   ))}
                 </ul>
               </CardContent>
             </Card>
+
+            {/* Predicted Roles */}
+            {results.predicted_roles && results.predicted_roles.length > 0 && (
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-purple-400">
+                    <Target className="h-5 w-5" />
+                    Predicted Roles
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {results.predicted_roles.map((role, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-purple-900/50 text-purple-300 rounded-full text-sm"
+                      >
+                        {role}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Skill Matches */}
+            {results.skill_matches && results.skill_matches.length > 0 && (
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-blue-400">
+                    <CheckCircle className="h-5 w-5" />
+                    Matching Skills
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {results.skill_matches.map((skill, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-blue-900/50 text-blue-300 rounded-full text-sm"
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Missing Skills */}
+            {results.missing_skills && results.missing_skills.length > 0 && (
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-orange-400">
+                    <AlertCircle className="h-5 w-5" />
+                    Missing Skills
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {results.missing_skills.map((skill, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-sm"
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
       </div>

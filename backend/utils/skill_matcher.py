@@ -3,6 +3,15 @@ from typing import List, Dict, Set
 from difflib import SequenceMatcher
 import json
 import os
+import numpy as np
+import logging
+from sklearn.metrics.pairwise import cosine_similarity
+from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer
+from .genai_suggester import ResumeImprover
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load comprehensive skill database
 SKILLS_DB = {
@@ -139,6 +148,105 @@ def get_skill_gaps(resume_text: str, jd_text: str) -> Dict:
         }
     }
 
-def extract_and_match_skills(resume_text: str, jd_text: str) -> Dict:
-    """Main function to extract and match skills between resume and JD."""
-    return get_skill_gaps(resume_text, jd_text) 
+class SkillMatcher:
+    def __init__(self):
+        try:
+            self.models = get_models()
+            self.match_model = get_match_model()
+            self.feature_scaler = get_feature_scaler()
+            self.model_features = get_model_features()
+            self.sentence_transformer = get_sentence_transformer()
+            logger.info("Successfully initialized SkillMatcher")
+        except Exception as e:
+            logger.error(f"Failed to initialize SkillMatcher: {str(e)}")
+            raise
+
+    def extract_and_match_skills(self, resume_text, job_description):
+        """
+        Extract and match skills between resume and job description.
+        First attempts LLM-based analysis, falls back to model-based analysis if LLM fails.
+        """
+        try:
+            # First attempt: Use LLM-based analysis
+            suggester = ResumeImprover()
+            analysis = suggester.analyze_skills(resume_text, job_description)
+            
+            # Extract skills from LLM analysis
+            matched_skills = analysis.get('matched_skills', [])
+            missing_skills = analysis.get('missing_skills', [])
+            additional_skills = analysis.get('additional_skills', [])
+            
+            logger.info("Successfully completed LLM-based skill analysis")
+            return {
+                'matched_skills': matched_skills,
+                'missing_skills': missing_skills,
+                'additional_skills': additional_skills,
+                'analysis_type': 'llm'
+            }
+            
+        except Exception as e:
+            logger.warning(f"LLM analysis failed, falling back to model-based analysis: {str(e)}")
+            return self._model_based_skill_analysis(resume_text, job_description)
+
+    def _model_based_skill_analysis(self, resume_text, job_description):
+        """
+        Fallback method using trained model for skill analysis.
+        Only used when LLM analysis fails.
+        """
+        try:
+            # Extract skills from both texts
+            resume_skills = self._extract_skills_from_text(resume_text)
+            job_skills = self._extract_skills_from_text(job_description)
+            
+            # Calculate matched, missing, and additional skills
+            matched_skills = list(resume_skills.intersection(job_skills))
+            missing_skills = list(job_skills - resume_skills)
+            additional_skills = list(resume_skills - job_skills)
+            
+            logger.info("Successfully completed model-based skill analysis")
+            return {
+                'matched_skills': matched_skills,
+                'missing_skills': missing_skills,
+                'additional_skills': additional_skills,
+                'analysis_type': 'model'
+            }
+            
+        except Exception as e:
+            logger.error(f"Model-based skill analysis failed: {str(e)}")
+            return {
+                'matched_skills': [],
+                'missing_skills': [],
+                'additional_skills': [],
+                'analysis_type': 'fallback'
+            }
+
+    def _extract_skills_from_text(self, text):
+        """
+        Extract skills from text using semantic similarity.
+        """
+        try:
+            # Get text embedding
+            text_embedding = self.sentence_transformer.encode(text)
+            
+            # Compare with known skill embeddings
+            skills = set()
+            for skill, embedding in self.model_features.items():
+                similarity = cosine_similarity([text_embedding], [embedding])[0][0]
+                if similarity > 0.5:  # Threshold for skill extraction
+                    skills.add(skill)
+            
+            return skills
+            
+        except Exception as e:
+            logger.error(f"Failed to extract skills from text: {str(e)}")
+            return set()
+
+# Create a singleton instance
+skill_matcher = SkillMatcher()
+
+def extract_and_match_skills(resume_text, job_description):
+    """
+    Extract and match skills between resume and job description.
+    This is the main entry point for skill matching.
+    """
+    return skill_matcher.extract_and_match_skills(resume_text, job_description) 

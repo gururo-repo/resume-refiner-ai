@@ -1,179 +1,261 @@
+import json
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from .model_loader import match_model, feature_scaler, model_features, sentence_transformer
+import logging
+from .genai_suggester import ResumeImprover
+from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer
 from .skill_matcher import extract_skills, SKILLS_DB
-import re
+from sklearn.metrics.pairwise import cosine_similarity
+import pickle
+import os
 
-def get_match_score(resume_text: str, job_description: str) -> dict:
-    """
-    Calculate match score between resume and job description.
-    Returns a dictionary containing match percentage, ATS score, strengths, weaknesses, and recommendations.
-    """
-    # Extract skills from both texts with category information
-    resume_skills = extract_skills(resume_text)
-    job_skills = extract_skills(job_description)
-    
-    # Calculate skill match metrics with category weights
-    category_weights = {
-        'programming': 1.0,
-        'frameworks': 0.9,
-        'cloud': 0.9,
-        'data_science': 0.9,
-        'devops': 0.8,
-        'security': 0.8,
-        'tools': 0.7,
-        'soft_skills': 0.6
-    }
-    
-    # Calculate weighted skill matches
-    resume_skill_set = set()
-    job_skill_set = set()
-    weighted_resume_skills = {}
-    weighted_job_skills = {}
-    
-    for category, skills in resume_skills.items():
-        for skill in skills:
-            resume_skill_set.add(skill)
-            weighted_resume_skills[skill] = category_weights.get(category, 0.5)
-    
-    for category, skills in job_skills.items():
-        for skill in skills:
-            job_skill_set.add(skill)
-            weighted_job_skills[skill] = category_weights.get(category, 0.5)
-    
-    # Calculate weighted Jaccard similarity
-    if len(resume_skill_set) == 0 or len(job_skill_set) == 0:
-        jaccard_similarity = 0.0
-    else:
-        intersection = resume_skill_set.intersection(job_skill_set)
-        union = resume_skill_set.union(job_skill_set)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class MatchScoreCalculator:
+    def __init__(self):
+        try:
+            self.models = get_models()
+            self.match_model = get_match_model()
+            self.feature_scaler = get_feature_scaler()
+            self.model_features = get_model_features()
+            self.sentence_transformer = get_sentence_transformer()
+            logger.info("Successfully initialized MatchScoreCalculator")
+        except Exception as e:
+            logger.error(f"Failed to initialize MatchScoreCalculator: {str(e)}")
+            raise
+
+    def calculate_match_score(self, resume_skills, job_skills, resume_text, job_description):
+        """
+        Calculate match score between resume and job description.
+        First attempts LLM-based analysis, falls back to model-based analysis if LLM fails.
+        """
+        try:
+            # First attempt: Use LLM-based analysis
+            suggester = ResumeImprover()
+            analysis = suggester.analyze_ats_compatibility(resume_text, job_description)
+            
+            # Extract scores from LLM analysis
+            match_score = analysis.get('match_score', 0)
+            ats_score = analysis.get('ats_score', 0)
+            strengths = analysis.get('strengths', [])
+            weaknesses = analysis.get('weaknesses', [])
+            recommendations = analysis.get('recommendations', [])
+            
+            logger.info("Successfully completed LLM-based analysis")
+            return {
+                'match_score': match_score,
+                'ats_score': ats_score,
+                'strengths': strengths,
+                'weaknesses': weaknesses,
+                'recommendations': recommendations,
+                'analysis_type': 'llm'
+            }
+            
+        except Exception as e:
+            logger.warning(f"LLM analysis failed, falling back to model-based analysis: {str(e)}")
+            return self._model_based_analysis(resume_skills, job_skills, resume_text)
+
+    def _model_based_analysis(self, resume_skills, job_skills, resume_text):
+        """
+        Fallback method using trained model for match analysis.
+        Only used when LLM analysis fails.
+        """
+        try:
+            # Calculate features using the same methodology as training
+            jaccard_similarity = self._calculate_jaccard_similarity(resume_skills, job_skills)
+            common_skills_count = len(resume_skills.intersection(job_skills))
+            skill_vector_similarity = self._calculate_skill_vector_similarity(resume_skills, job_skills)
+            skill_count_diff = abs(len(resume_skills) - len(job_skills))
+            skill_count_ratio = common_skills_count / max(1, len(job_skills))
+            skills_density = len(resume_skills) / max(1, len(resume_text.split()))
+
+            # Create feature array matching the model's expected input
+            features = np.array([[
+                jaccard_similarity,
+                common_skills_count,
+                skill_vector_similarity,
+                skill_count_diff,
+                skill_count_ratio,
+                skills_density
+            ]])
+
+            # Scale features using the saved scaler
+            features_scaled = self.feature_scaler.transform(features)
+
+            # Predict match score using the trained model
+            match_score = self.match_model.predict(features_scaled)[0]
+            
+            # Calculate ATS score based on model features
+            ats_score = min(100, max(0, (
+                jaccard_similarity * 0.4 +
+                skill_vector_similarity * 0.3 +
+                skill_count_ratio * 0.3
+            ) * 100))
+            
+            # Generate strengths and weaknesses based on model analysis
+            strengths = [f"Strong skill: {skill}" for skill in list(resume_skills.intersection(job_skills))[:5]]
+            weaknesses = [f"Missing skill: {skill}" for skill in list(job_skills - resume_skills)[:5]]
+            
+            # Generate recommendations based on model analysis
+            recommendations = []
+            if weaknesses:
+                recommendations.append(f"Add missing skills: {', '.join(list(job_skills - resume_skills)[:3])}")
+            if skills_density < 0.1:
+                recommendations.append("Increase skills density in resume")
+            if len(resume_text.split()) < 200:
+                recommendations.append("Add more detailed content to resume")
+            
+            logger.info("Successfully completed model-based analysis")
+            return {
+                'match_score': max(0, min(100, match_score * 100)),
+                'ats_score': ats_score,
+                'strengths': strengths,
+                'weaknesses': weaknesses,
+                'recommendations': recommendations,
+                'analysis_type': 'model'
+            }
+            
+        except Exception as e:
+            logger.error(f"Model-based analysis failed: {str(e)}")
+            return {
+                'match_score': 0,
+                'ats_score': 0,
+                'strengths': ['Basic resume structure present'],
+                'weaknesses': ['Unable to perform detailed analysis'],
+                'recommendations': ['Please try again or contact support'],
+                'analysis_type': 'fallback'
+            }
+
+    def _calculate_jaccard_similarity(self, set1, set2):
+        if not set1 or not set2:
+            return 0.0
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        return intersection / union if union > 0 else 0.0
+
+    def _calculate_skill_vector_similarity(self, resume_skills, job_skills):
+        if not resume_skills or not job_skills:
+            return 0.0
         
-        # Calculate weighted intersection and union
-        weighted_intersection = sum(weighted_job_skills[skill] for skill in intersection)
-        weighted_union = sum(weighted_job_skills[skill] for skill in union)
+        # Create binary vectors for skills
+        all_skills = list(self.model_features)
+        resume_vec = np.array([1 if skill in resume_skills else 0 for skill in all_skills])
+        job_vec = np.array([1 if skill in job_skills else 0 for skill in all_skills])
         
-        jaccard_similarity = weighted_intersection / weighted_union if weighted_union > 0 else 0.0
-    
-    # Calculate common skills with weights
-    common_skills = resume_skill_set.intersection(job_skill_set)
-    common_skills_count = len(common_skills)
-    weighted_common_skills = sum(weighted_job_skills[skill] for skill in common_skills)
-    
-    # Get embeddings for semantic similarity with improved context
-    resume_sections = {
-        'experience': extract_section(resume_text, 'experience'),
-        'skills': extract_section(resume_text, 'skills'),
-        'projects': extract_section(resume_text, 'projects')
-    }
-    
-    job_sections = {
-        'requirements': extract_section(job_description, 'requirements'),
-        'responsibilities': extract_section(job_description, 'responsibilities'),
-        'qualifications': extract_section(job_description, 'qualifications')
-    }
-    
-    # Calculate section-wise semantic similarity
-    section_similarities = {}
-    for resume_section, resume_content in resume_sections.items():
-        if not resume_content:
-            continue
-        for job_section, job_content in job_sections.items():
-            if not job_content:
-                continue
-            resume_embedding = sentence_transformer.encode([resume_content])[0]
-            job_embedding = sentence_transformer.encode([job_content])[0]
-            similarity = np.dot(resume_embedding, job_embedding) / (
-                np.linalg.norm(resume_embedding) * np.linalg.norm(job_embedding)
-            )
-            section_similarities[f"{resume_section}_{job_section}"] = similarity
-    
-    # Calculate overall semantic similarity
-    resume_embedding = sentence_transformer.encode([resume_text])[0]
-    job_embedding = sentence_transformer.encode([job_description])[0]
-    skill_vector_similarity = np.dot(resume_embedding, job_embedding) / (
-        np.linalg.norm(resume_embedding) * np.linalg.norm(job_embedding)
-    )
-    
-    # Calculate additional features
-    skill_count_diff = abs(len(resume_skill_set) - len(job_skill_set))
-    skill_count_ratio = weighted_common_skills / max(1, sum(weighted_job_skills.values()))
-    skills_density = len(resume_skill_set) / max(1, len(resume_text.split()))
-    
-    # Prepare features for model prediction
-    features = np.array([[
-        jaccard_similarity,
-        weighted_common_skills,
-        skill_vector_similarity,
-        skill_count_diff,
-        skill_count_ratio,
-        skills_density
-    ]])
-    
-    # Scale features
-    features_scaled = feature_scaler.transform(features)
-    
-    # Get match score prediction
-    match_score = match_model.predict(features_scaled)[0]
-    match_percentage = min(100, max(0, match_score * 100))
-    
-    # Calculate ATS score with improved weighting
-    ats_score = min(100, max(0, (
-        jaccard_similarity * 0.4 +
-        skill_vector_similarity * 0.3 +
-        sum(section_similarities.values()) / max(1, len(section_similarities)) * 0.3
-    ) * 100))
-    
-    # Identify strengths and weaknesses with category information
-    strengths = []
-    for skill in common_skills:
-        category = next((cat for cat, skills in job_skills.items() if skill in skills), 'other')
-        strengths.append(f"Strong {category} skill: {skill}")
-    
-    weaknesses = []
-    for skill in job_skill_set - resume_skill_set:
-        category = next((cat for cat, skills in job_skills.items() if skill in skills), 'other')
-        weaknesses.append(f"Missing {category} skill: {skill}")
-    
-    # Generate recommendations
-    recommendations = []
-    
-    # Skill gaps
-    if weaknesses:
-        top_weaknesses = [w.split(': ')[1] for w in weaknesses[:5]]
-        recommendations.append(f"Add missing skills: {', '.join(top_weaknesses)}")
-    
-    # Skills density
-    if skills_density < 0.1:
-        recommendations.append("Increase skills density in resume by adding more relevant skills")
-    
-    # Section improvements
-    for section, similarity in section_similarities.items():
-        if similarity < 0.5:
-            recommendations.append(f"Improve alignment in {section.replace('_', ' ')} section")
-    
-    # Formatting suggestions
-    if len(resume_text.split()) < 200:
-        recommendations.append("Add more detailed content to resume")
-    
+        # Calculate cosine similarity
+        return cosine_similarity([resume_vec], [job_vec])[0][0]
+
+# Create a singleton instance
+match_score_calculator = MatchScoreCalculator()
+
+def get_match_score(resume_skills, job_skills, resume_text, job_description):
+    """
+    Get match score between resume and job description.
+    This is the main entry point for match score calculation.
+    """
+    return match_score_calculator.calculate_match_score(resume_skills, job_skills, resume_text, job_description)
+
+def _model_based_analysis(resume_text, job_description):
+    """
+    Fallback method using trained model for match analysis.
+    """
+    try:
+        # Extract skills from both texts
+        resume_skills = extract_skills(resume_text)
+        job_skills = extract_skills(job_description)
+        
+        # Calculate skill match metrics
+        resume_skill_set = set()
+        job_skill_set = set()
+        
+        for category, skills in resume_skills.items():
+            resume_skill_set.update(skills)
+        
+        for category, skills in job_skills.items():
+            job_skill_set.update(skills)
+        
+        # Calculate Jaccard similarity
+        if len(resume_skill_set) == 0 or len(job_skill_set) == 0:
+            jaccard_similarity = 0.0
+        else:
+            intersection = resume_skill_set.intersection(job_skill_set)
+            union = resume_skill_set.union(job_skill_set)
+            jaccard_similarity = len(intersection) / len(union)
+        
+        # Calculate common skills count
+        common_skills = resume_skill_set.intersection(job_skill_set)
+        common_skills_count = len(common_skills)
+        
+        # Get embeddings for semantic similarity
+        resume_embedding = sentence_transformer.encode([resume_text])[0]
+        job_embedding = sentence_transformer.encode([job_description])[0]
+        skill_vector_similarity = np.dot(resume_embedding, job_embedding) / (
+            np.linalg.norm(resume_embedding) * np.linalg.norm(job_embedding)
+        )
+        
+        # Calculate additional features
+        skill_count_diff = abs(len(resume_skill_set) - len(job_skill_set))
+        skill_count_ratio = common_skills_count / max(1, len(job_skill_set))
+        skills_density = len(resume_skill_set) / max(1, len(resume_text.split()))
+        
+        # Prepare features for model prediction
+        features = np.array([[
+            jaccard_similarity,
+            common_skills_count,
+            skill_vector_similarity,
+            skill_count_diff,
+            skill_count_ratio,
+            skills_density
+        ]])
+        
+        # Scale features
+        features_scaled = feature_scaler.transform(features)
+        
+        # Get match score prediction
+        match_score = match_model.predict(features_scaled)[0]
+        match_percentage = min(100, max(0, match_score * 100))
+        
+        # Calculate ATS score
+        ats_score = min(100, max(0, (
+            jaccard_similarity * 0.4 +
+            skill_vector_similarity * 0.3 +
+            skill_count_ratio * 0.3
+        ) * 100))
+        
+        # Generate strengths and weaknesses
+        strengths = [f"Strong skill: {skill}" for skill in list(common_skills)[:5]]
+        weaknesses = [f"Missing skill: {skill}" for skill in list(job_skill_set - resume_skill_set)[:5]]
+        
+        # Generate recommendations
+        recommendations = []
+        if weaknesses:
+            recommendations.append(f"Add missing skills: {', '.join(list(job_skill_set - resume_skill_set)[:3])}")
+        if skills_density < 0.1:
+            recommendations.append("Increase skills density in resume")
+        if len(resume_text.split()) < 200:
+            recommendations.append("Add more detailed content to resume")
+        
+        return {
+            'match_score': round(match_percentage, 2),
+            'ats_score': round(ats_score, 2),
+            'strengths': strengths,
+            'weaknesses': weaknesses,
+            'recommendations': recommendations
+        }
+        
+    except Exception as e:
+        print(f"Error in model-based analysis: {str(e)}")
+        return _basic_match_analysis(resume_text, job_description)
+
+def _basic_match_analysis(resume_text, job_description):
+    """
+    Final fallback method for basic match analysis.
+    """
     return {
-        'match_score': round(match_percentage, 2),
-        'ats_score': round(ats_score, 2),
-        'strengths': strengths[:5],
-        'weaknesses': weaknesses[:5],
-        'recommendations': recommendations[:5]
-    }
-
-def extract_section(text: str, section_name: str) -> str:
-    """Extract content from a specific section of the text."""
-    section_patterns = [
-        fr'\n\s*{section_name}.*?\n(.*?)(?=\n\s*[A-Z][A-Z\s]+:|$)',
-        fr'\n\s*{section_name}.*?\n(.*?)(?=\n\s*\d+\.|$)',
-        fr'\n\s*{section_name}.*?\n(.*?)(?=\n\s*[-•\*]|$)'
-    ]
-    
-    for pattern in section_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        if match:
-            return match.group(1).strip()
-    
-    return "" 
+        'match_score': 50,
+        'ats_score': 50,
+        'strengths': ['Basic resume structure present'],
+        'weaknesses': ['Unable to perform detailed analysis'],
+        'recommendations': ['Please try again or contact support']
+    } 
