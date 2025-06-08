@@ -174,12 +174,12 @@ const AnalyzerPage = () => {
               <Card className="glass-card text-center">
                 <CardContent className="pt-6">
                   <Target className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">ATS Score</h3>
-                  <div className={`text-3xl font-bold ${getScoreColor(results.ats_score)}`}>
-                    {results.ats_score}%
+                  <h3 className="text-lg font-semibold mb-2">Match Score</h3>
+                  <div className={`text-3xl font-bold ${getScoreColor(results.match_score)}`}>
+                    {results.match_score}%
                   </div>
                   <p className="text-sm text-gray-400 mt-2">
-                    {getScoreStatus(results.ats_score)}
+                    {getScoreStatus(results.match_score)}
                   </p>
                 </CardContent>
               </Card>
@@ -187,12 +187,12 @@ const AnalyzerPage = () => {
               <Card className="glass-card text-center">
                 <CardContent className="pt-6">
                   <TrendingUp className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Match Score</h3>
-                  <div className={`text-3xl font-bold ${getScoreColor(results.match_score)}`}>
-                    {results.match_score}%
+                  <h3 className="text-lg font-semibold mb-2">Role Match</h3>
+                  <div className="text-3xl font-bold text-cyan-400">
+                    {results.role_prediction?.category || 'Unknown'}
                   </div>
                   <p className="text-sm text-gray-400 mt-2">
-                    {getScoreStatus(results.match_score)}
+                    Confidence: {results.role_prediction?.confidence || 0}%
                   </p>
                 </CardContent>
               </Card>
@@ -214,138 +214,183 @@ const AnalyzerPage = () => {
 
             {/* Detailed Analysis */}
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Strengths */}
+              {/* Resume Data */}
               <Card className="glass-card">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-green-400">
-                    <CheckCircle className="h-5 w-5" />
-                    Strengths
+                  <CardTitle className="flex items-center gap-2 text-cyan-400">
+                    <FileText className="h-5 w-5" />
+                    Resume Analysis
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ul className="space-y-2">
-                    {results.strengths.map((strength, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                        <span>{strength}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Skills</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {results.resume_data?.skills?.map((skill, index) => (
+                          <span key={index} className="px-3 py-1 bg-cyan-900/50 text-cyan-300 rounded-full text-sm">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Experience</h4>
+                      <p className="text-gray-400">
+                        {results.resume_data?.experience?.[0] || 'No experience found'}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Education</h4>
+                      <p className="text-gray-400">
+                        {results.resume_data?.education?.[0] || 'No education found'}
+                      </p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
-              {/* Areas for Improvement */}
+              {/* Job Analysis */}
               <Card className="glass-card">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-red-400">
-                    <AlertCircle className="h-5 w-5" />
-                    Areas for Improvement
+                  <CardTitle className="flex items-center gap-2 text-cyan-400">
+                    <Target className="h-5 w-5" />
+                    Job Analysis
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ul className="space-y-2">
-                    {results.weaknesses.map((weakness, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-red-400 mt-1 flex-shrink-0" />
-                        <span>{weakness}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Required Skills</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {results.job_analysis?.required_skills?.map((skill, index) => (
+                          <span key={index} className="px-3 py-1 bg-cyan-900/50 text-cyan-300 rounded-full text-sm">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Experience Level</h4>
+                      <p className="text-gray-400">
+                        {results.job_analysis?.experience_level || 'Not specified'}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-300 mb-2">Education Requirements</h4>
+                      <p className="text-gray-400">
+                        {results.job_analysis?.education_requirements || 'Not specified'}
+                      </p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Recommendations */}
+            {/* Match Components */}
             <Card className="glass-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-cyan-400">
-                  <Brain className="h-5 w-5" />
-                  Recommendations
+                  <TrendingUp className="h-5 w-5" />
+                  Match Components
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-2">
-                  {results.recommendations.map((rec, index) => (
-                    <li key={index} className="flex items-start gap-2">
-                      <Brain className="h-5 w-5 text-cyan-400 mt-1 flex-shrink-0" />
-                      <span>{rec}</span>
-                    </li>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {results.match_components && Object.entries(results.match_components).map(([key, value]) => (
+                    <div key={key} className="text-center">
+                      <h4 className="font-semibold text-gray-300 mb-2 capitalize">
+                        {key.replace(/_/g, ' ')}
+                      </h4>
+                      <div className={`text-2xl font-bold ${getScoreColor(value)}`}>
+                        {value}%
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Predicted Roles */}
-            {results.predicted_roles && results.predicted_roles.length > 0 && (
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-purple-400">
-                    <Target className="h-5 w-5" />
-                    Predicted Roles
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {results.predicted_roles.map((role, index) => (
-                      <span
-                        key={index}
-                        className="px-3 py-1 bg-purple-900/50 text-purple-300 rounded-full text-sm"
-                      >
-                        {role}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Skill Matches */}
-            {results.skill_matches && results.skill_matches.length > 0 && (
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-blue-400">
-                    <CheckCircle className="h-5 w-5" />
-                    Matching Skills
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {results.skill_matches.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="px-3 py-1 bg-blue-900/50 text-blue-300 rounded-full text-sm"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Missing Skills */}
-            {results.missing_skills && results.missing_skills.length > 0 && (
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-orange-400">
-                    <AlertCircle className="h-5 w-5" />
-                    Missing Skills
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {results.missing_skills.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-sm"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/* ATS Score Section */}
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 className="text-2xl font-bold mb-4">ATS Score Analysis</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <div className="flex items-center justify-center mb-4">
+                            <div className="relative">
+                                <svg className="w-32 h-32">
+                                    <circle
+                                        className="text-gray-200"
+                                        strokeWidth="8"
+                                        stroke="currentColor"
+                                        fill="transparent"
+                                        r="56"
+                                        cx="64"
+                                        cy="64"
+                                    />
+                                    <circle
+                                        className="text-blue-600"
+                                        strokeWidth="8"
+                                        strokeDasharray={352}
+                                        strokeDashoffset={352 - (352 * (results.ats_score?.overall_score || 0)) / 100}
+                                        strokeLinecap="round"
+                                        stroke="currentColor"
+                                        fill="transparent"
+                                        r="56"
+                                        cx="64"
+                                        cy="64"
+                                    />
+                                </svg>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-2xl font-bold">
+                                        {results.ats_score?.overall_score || 0}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            {results.ats_score?.components && Object.entries(results.ats_score.components).map(([key, value]) => (
+                                <div key={key} className="flex justify-between items-center">
+                                    <span className="capitalize">{key.replace('_', ' ')}</span>
+                                    <span className="font-semibold">{value}%</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        {results.ats_score?.strengths && results.ats_score.strengths.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-semibold text-green-600 mb-2">Strengths</h3>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {results.ats_score.strengths.map((strength, index) => (
+                                        <li key={index} className="text-gray-700">{strength}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {results.ats_score?.weaknesses && results.ats_score.weaknesses.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-semibold text-red-600 mb-2">Areas for Improvement</h3>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {results.ats_score.weaknesses.map((weakness, index) => (
+                                        <li key={index} className="text-gray-700">{weakness}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {results.ats_score?.improvements && results.ats_score.improvements.length > 0 && (
+                            <div>
+                                <h3 className="text-lg font-semibold text-blue-600 mb-2">Recommendations</h3>
+                                <ul className="list-disc list-inside space-y-1">
+                                    {results.ats_score.improvements.map((improvement, index) => (
+                                        <li key={index} className="text-gray-700">{improvement}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
           </div>
         )}
       </div>

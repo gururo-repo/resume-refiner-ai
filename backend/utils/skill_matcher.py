@@ -6,8 +6,7 @@ import os
 import numpy as np
 import logging
 from sklearn.metrics.pairwise import cosine_similarity
-from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer
-from .genai_suggester import ResumeImprover
+from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer, get_model_loader
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -89,26 +88,31 @@ def get_skill_similarity(skill1: str, skill2: str) -> float:
     """Calculate similarity between two skills using SequenceMatcher."""
     return SequenceMatcher(None, skill1.lower(), skill2.lower()).ratio()
 
-def extract_skills(text: str, threshold: float = 0.8) -> Dict[str, List[str]]:
-    """Extract skills from text using fuzzy matching."""
-    normalized_text = normalize_text(text)
-    found_skills = {category: [] for category in SKILLS_DB.keys()}
-    
-    for category, skills in SKILLS_DB.items():
-        for skill in skills:
-            # Check for exact match
-            if skill.lower() in normalized_text:
-                found_skills[category].append(skill)
-                continue
+def extract_skills(text):
+    """Extract skills from text using the skills database."""
+    try:
+        if not text:
+            return {}
             
-            # Check for fuzzy match
-            words = normalized_text.split()
-            for word in words:
-                if len(word) > 3 and get_skill_similarity(skill, word) > threshold:
-                    found_skills[category].append(skill)
-                    break
-    
-    return found_skills
+        text = text.lower()
+        skills_by_category = {}
+        
+        # Initialize categories
+        for category in SKILLS_DB.keys():
+            skills_by_category[category] = set()
+        
+        # Extract skills from each category
+        for category, skills in SKILLS_DB.items():
+            for skill in skills:
+                if skill.lower() in text:
+                    skills_by_category[category].add(skill)
+        
+        # Convert sets to lists for JSON serialization
+        return {category: list(skills) for category, skills in skills_by_category.items()}
+        
+    except Exception as e:
+        logger.error(f"Failed to extract skills from text: {str(e)}")
+        return {}
 
 def get_missing_skills(resume_skills: Dict[str, List[str]], 
                       jd_skills: Dict[str, List[str]]) -> Dict[str, List[str]]:
@@ -150,95 +154,124 @@ def get_skill_gaps(resume_text: str, jd_text: str) -> Dict:
 
 class SkillMatcher:
     def __init__(self):
+        """Initialize the SkillMatcher with common technical skills."""
+        self.model_loader = get_model_loader()
+        self.common_skills = {
+            # Programming Languages
+            'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'ruby', 'php',
+            'swift', 'kotlin', 'go', 'rust', 'scala', 'perl', 'r', 'matlab',
+            
+            # Web Technologies
+            'html', 'css', 'react', 'angular', 'vue', 'node.js', 'express', 'django',
+            'flask', 'spring', 'asp.net', 'laravel', 'symfony', 'jquery', 'bootstrap',
+            'tailwind', 'sass', 'less', 'webpack', 'babel', 'npm', 'yarn',
+            
+            # Databases
+            'sql', 'mysql', 'postgresql', 'oracle', 'sql server', 'mongodb', 'redis',
+            'cassandra', 'elasticsearch', 'dynamodb', 'firebase', 'neo4j',
+            
+            # Cloud & DevOps
+            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'gitlab',
+            'github actions', 'terraform', 'ansible', 'puppet', 'chef', 'prometheus',
+            'grafana', 'elk stack', 'splunk',
+            
+            # AI & ML
+            'machine learning', 'deep learning', 'tensorflow', 'pytorch', 'keras',
+            'scikit-learn', 'numpy', 'pandas', 'opencv', 'nltk', 'spacy', 'bert',
+            'gpt', 'computer vision', 'nlp', 'reinforcement learning',
+            
+            # Mobile Development
+            'android', 'ios', 'react native', 'flutter', 'xamarin', 'ionic',
+            
+            # Testing
+            'junit', 'pytest', 'selenium', 'cypress', 'jest', 'mocha', 'chai',
+            'cucumber', 'jasmine', 'testng',
+            
+            # Other
+            'git', 'agile', 'scrum', 'kanban', 'jira', 'confluence', 'rest',
+            'graphql', 'microservices', 'serverless', 'ci/cd', 'security',
+            'networking', 'linux', 'windows', 'macos'
+        }
+        logger.info("Successfully initialized SkillMatcher")
+    
+    def extract_required_skills(self, text: str) -> List[str]:
+        """Extract required skills from text."""
         try:
-            self.models = get_models()
-            self.match_model = get_match_model()
-            self.feature_scaler = get_feature_scaler()
-            self.model_features = get_model_features()
-            self.sentence_transformer = get_sentence_transformer()
-            logger.info("Successfully initialized SkillMatcher")
-        except Exception as e:
-            logger.error(f"Failed to initialize SkillMatcher: {str(e)}")
-            raise
-
-    def extract_and_match_skills(self, resume_text, job_description):
-        """
-        Extract and match skills between resume and job description.
-        First attempts LLM-based analysis, falls back to model-based analysis if LLM fails.
-        """
-        try:
-            # First attempt: Use LLM-based analysis
-            suggester = ResumeImprover()
-            analysis = suggester.analyze_skills(resume_text, job_description)
+            # Convert text to lowercase for case-insensitive matching
+            text_lower = text.lower()
             
-            # Extract skills from LLM analysis
-            matched_skills = analysis.get('matched_skills', [])
-            missing_skills = analysis.get('missing_skills', [])
-            additional_skills = analysis.get('additional_skills', [])
+            # Find required skills using common patterns
+            required_patterns = [
+                r'required skills?:?\s*([^.]*)',
+                r'must have:?\s*([^.]*)',
+                r'requirements:?\s*([^.]*)',
+                r'qualifications:?\s*([^.]*)'
+            ]
             
-            logger.info("Successfully completed LLM-based skill analysis")
-            return {
-                'matched_skills': matched_skills,
-                'missing_skills': missing_skills,
-                'additional_skills': additional_skills,
-                'analysis_type': 'llm'
-            }
+            required_skills = set()
+            for pattern in required_patterns:
+                matches = re.finditer(pattern, text_lower, re.IGNORECASE)
+                for match in matches:
+                    section = match.group(1)
+                    # Extract skills from the section
+                    skills = self._extract_skills_from_section(section)
+                    required_skills.update(skills)
             
-        except Exception as e:
-            logger.warning(f"LLM analysis failed, falling back to model-based analysis: {str(e)}")
-            return self._model_based_skill_analysis(resume_text, job_description)
-
-    def _model_based_skill_analysis(self, resume_text, job_description):
-        """
-        Fallback method using trained model for skill analysis.
-        Only used when LLM analysis fails.
-        """
-        try:
-            # Extract skills from both texts
-            resume_skills = self._extract_skills_from_text(resume_text)
-            job_skills = self._extract_skills_from_text(job_description)
-            
-            # Calculate matched, missing, and additional skills
-            matched_skills = list(resume_skills.intersection(job_skills))
-            missing_skills = list(job_skills - resume_skills)
-            additional_skills = list(resume_skills - job_skills)
-            
-            logger.info("Successfully completed model-based skill analysis")
-            return {
-                'matched_skills': matched_skills,
-                'missing_skills': missing_skills,
-                'additional_skills': additional_skills,
-                'analysis_type': 'model'
-            }
-            
-        except Exception as e:
-            logger.error(f"Model-based skill analysis failed: {str(e)}")
-            return {
-                'matched_skills': [],
-                'missing_skills': [],
-                'additional_skills': [],
-                'analysis_type': 'fallback'
-            }
-
-    def _extract_skills_from_text(self, text):
-        """
-        Extract skills from text using semantic similarity.
-        """
-        try:
-            # Get text embedding
-            text_embedding = self.sentence_transformer.encode(text)
-            
-            # Compare with known skill embeddings
-            skills = set()
-            for skill, embedding in self.model_features.items():
-                similarity = cosine_similarity([text_embedding], [embedding])[0][0]
-                if similarity > 0.5:  # Threshold for skill extraction
-                    skills.add(skill)
-            
-            return skills
+            return list(required_skills)
             
         except Exception as e:
-            logger.error(f"Failed to extract skills from text: {str(e)}")
+            logger.error(f"Error extracting required skills: {str(e)}")
+            return []
+    
+    def extract_preferred_skills(self, text: str) -> List[str]:
+        """Extract preferred skills from text."""
+        try:
+            # Convert text to lowercase for case-insensitive matching
+            text_lower = text.lower()
+            
+            # Find preferred skills using common patterns
+            preferred_patterns = [
+                r'preferred skills?:?\s*([^.]*)',
+                r'nice to have:?\s*([^.]*)',
+                r'bonus:?\s*([^.]*)',
+                r'additional skills?:?\s*([^.]*)'
+            ]
+            
+            preferred_skills = set()
+            for pattern in preferred_patterns:
+                matches = re.finditer(pattern, text_lower, re.IGNORECASE)
+                for match in matches:
+                    section = match.group(1)
+                    # Extract skills from the section
+                    skills = self._extract_skills_from_section(section)
+                    preferred_skills.update(skills)
+            
+            return list(preferred_skills)
+            
+        except Exception as e:
+            logger.error(f"Error extracting preferred skills: {str(e)}")
+            return []
+    
+    def _extract_skills_from_section(self, section: str) -> Set[str]:
+        """Extract skills from a section of text."""
+        try:
+            # Split section into words and phrases
+            words = section.split()
+            phrases = []
+            for i in range(len(words)):
+                for j in range(i + 1, min(i + 4, len(words) + 1)):
+                    phrases.append(' '.join(words[i:j]))
+            
+            # Find matching skills
+            found_skills = set()
+            for skill in self.common_skills:
+                if skill in section.lower():
+                    found_skills.add(skill)
+            
+            return found_skills
+            
+        except Exception as e:
+            logger.error(f"Error extracting skills from section: {str(e)}")
             return set()
 
 # Create a singleton instance
@@ -249,4 +282,33 @@ def extract_and_match_skills(resume_text, job_description):
     Extract and match skills between resume and job description.
     This is the main entry point for skill matching.
     """
-    return skill_matcher.extract_and_match_skills(resume_text, job_description) 
+    try:
+        # Extract skills from both texts
+        resume_skills = extract_skills(resume_text)
+        job_skills = extract_skills(job_description)
+        
+        # Convert to sets for matching
+        resume_skill_set = set()
+        job_skill_set = set()
+        
+        for category, skills in resume_skills.items():
+            resume_skill_set.update(skills)
+            
+        for category, skills in job_skills.items():
+            job_skill_set.update(skills)
+        
+        # Find matching and missing skills
+        matched_skills = list(resume_skill_set.intersection(job_skill_set))
+        missing_skills = list(job_skill_set - resume_skill_set)
+        
+        return {
+            'matched_skills': matched_skills,
+            'missing_skills': missing_skills
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to match skills: {str(e)}")
+        return {
+            'matched_skills': [],
+            'missing_skills': []
+        } 

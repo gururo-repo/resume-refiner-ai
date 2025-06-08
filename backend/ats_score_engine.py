@@ -343,3 +343,155 @@ def ats_score(resume_text, job_keywords):
     )
     
     return round(final_score * 100, 2)
+
+def calculate_ats_score(resume_text: str, job_description: str) -> Dict[str, Any]:
+    """Calculate ATS score and provide detailed analysis."""
+    try:
+        # Initialize components
+        skills_score = calculate_skills_match(resume_text, job_description)
+        keywords_score = calculate_keywords_match(resume_text, job_description)
+        format_score = calculate_format_score(resume_text)
+        experience_score = calculate_experience_match(resume_text, job_description)
+        
+        # Calculate overall score with adjusted weights
+        overall_score = (
+            0.35 * skills_score +  # Increased weight for skills
+            0.25 * keywords_score +  # Increased weight for keywords
+            0.20 * format_score +  # Format is important
+            0.20 * experience_score  # Experience matching
+        )
+        
+        # Get detailed analysis
+        strengths = identify_strengths(resume_text, job_description)
+        weaknesses = identify_weaknesses(resume_text, job_description)
+        improvements = suggest_improvements(resume_text, job_description)
+        
+        return {
+            'overall_score': round(overall_score * 100, 2),
+            'components': {
+                'skills_match': round(skills_score * 100, 2),
+                'keywords_match': round(keywords_score * 100, 2),
+                'format_score': round(format_score * 100, 2),
+                'experience_match': round(experience_score * 100, 2)
+            },
+            'strengths': strengths,
+            'weaknesses': weaknesses,
+            'improvements': improvements
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating ATS score: {str(e)}")
+        return {
+            'overall_score': 0,
+            'components': {
+                'skills_match': 0,
+                'keywords_match': 0,
+                'format_score': 0,
+                'experience_match': 0
+            },
+            'strengths': [],
+            'weaknesses': [],
+            'improvements': []
+        }
+
+def identify_strengths(resume_text: str, job_description: str) -> List[str]:
+    """Identify strengths in the resume that match job requirements."""
+    try:
+        strengths = []
+        
+        # Check for required skills match
+        required_skills = extract_required_skills(job_description)
+        resume_skills = extract_skills(resume_text)
+        matching_skills = [skill for skill in required_skills if skill in resume_skills]
+        if matching_skills:
+            strengths.append(f"Strong match with required skills: {', '.join(matching_skills)}")
+        
+        # Check for experience level match
+        exp_level = extract_experience_level(job_description)
+        resume_exp = extract_experience_years(resume_text)
+        if resume_exp >= exp_level:
+            strengths.append(f"Meets or exceeds required experience level ({exp_level} years)")
+        
+        # Check for education match
+        edu_req = extract_education_requirements(job_description)
+        resume_edu = extract_education(resume_text)
+        if any(edu in resume_edu for edu in edu_req):
+            strengths.append("Meets education requirements")
+        
+        # Check for format
+        if is_well_formatted(resume_text):
+            strengths.append("Well-formatted resume with clear sections")
+        
+        return strengths
+        
+    except Exception as e:
+        logger.error(f"Error identifying strengths: {str(e)}")
+        return []
+
+def identify_weaknesses(resume_text: str, job_description: str) -> List[str]:
+    """Identify weaknesses in the resume compared to job requirements."""
+    try:
+        weaknesses = []
+        
+        # Check for missing required skills
+        required_skills = extract_required_skills(job_description)
+        resume_skills = extract_skills(resume_text)
+        missing_skills = [skill for skill in required_skills if skill not in resume_skills]
+        if missing_skills:
+            weaknesses.append(f"Missing required skills: {', '.join(missing_skills)}")
+        
+        # Check for experience level
+        exp_level = extract_experience_level(job_description)
+        resume_exp = extract_experience_years(resume_text)
+        if resume_exp < exp_level:
+            weaknesses.append(f"Below required experience level ({exp_level} years)")
+        
+        # Check for education
+        edu_req = extract_education_requirements(job_description)
+        resume_edu = extract_education(resume_text)
+        if not any(edu in resume_edu for edu in edu_req):
+            weaknesses.append("Does not meet education requirements")
+        
+        # Check for format issues
+        if not is_well_formatted(resume_text):
+            weaknesses.append("Resume format could be improved")
+        
+        return weaknesses
+        
+    except Exception as e:
+        logger.error(f"Error identifying weaknesses: {str(e)}")
+        return []
+
+def suggest_improvements(resume_text: str, job_description: str) -> List[str]:
+    """Suggest specific improvements for the resume."""
+    try:
+        improvements = []
+        
+        # Skills improvements
+        required_skills = extract_required_skills(job_description)
+        resume_skills = extract_skills(resume_text)
+        missing_skills = [skill for skill in required_skills if skill not in resume_skills]
+        if missing_skills:
+            improvements.append(f"Add missing required skills: {', '.join(missing_skills)}")
+        
+        # Experience improvements
+        exp_level = extract_experience_level(job_description)
+        resume_exp = extract_experience_years(resume_text)
+        if resume_exp < exp_level:
+            improvements.append(f"Highlight relevant experience to meet {exp_level} years requirement")
+        
+        # Education improvements
+        edu_req = extract_education_requirements(job_description)
+        resume_edu = extract_education(resume_text)
+        if not any(edu in resume_edu for edu in edu_req):
+            improvements.append(f"Consider adding {', '.join(edu_req)} education")
+        
+        # Format improvements
+        if not is_well_formatted(resume_text):
+            improvements.append("Improve resume formatting with clear sections and bullet points")
+        
+        return improvements
+        
+    except Exception as e:
+        logger.error(f"Error suggesting improvements: {str(e)}")
+        return []
