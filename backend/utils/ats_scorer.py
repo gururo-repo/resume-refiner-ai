@@ -1,31 +1,96 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from sentence_transformers import SentenceTransformer, util
 import torch
 import joblib
 import os
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from .model_loader import get_sentence_transformer
 
 logger = logging.getLogger(__name__)
 
 class ATSScorer:
     def __init__(self):
+        """Initialize the ATS scorer."""
         self.model = None
-        self.initialize_model()
-    
-    def initialize_model(self):
-        """Initialize the Sentence-BERT model."""
+        self.initialized = False
+        self._initialize_model()
+
+    def _initialize_model(self):
+        """Initialize the sentence transformer model."""
         try:
-            model_path = os.path.join('models', 'ats_scorer')
-            if os.path.exists(model_path):
-                logger.info("Loading fine-tuned ATS scorer model...")
-                self.model = joblib.load(model_path)
-            else:
-                logger.info("Loading base Sentence-BERT model...")
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            logger.info("Getting sentence transformer model...")
+            self.model = get_sentence_transformer()
+            self.initialized = True
+            logger.info("Successfully initialized ATS scorer")
         except Exception as e:
-            logger.error(f"Error initializing ATS scorer model: {str(e)}")
-            raise
-    
+            logger.error(f"Error initializing ATS scorer: {str(e)}")
+            self.initialized = False
+            logger.info("ATS scorer will use basic scoring methods")
+
+    def calculate_ats_score(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """
+        Calculate ATS score for a resume against a job description.
+        
+        Args:
+            resume_text: The resume text to analyze
+            job_description: The job description text
+            
+        Returns:
+            Dictionary containing ATS score and analysis
+        """
+        if not self.initialized:
+            logger.warning("ATS scorer not initialized, using basic scoring")
+            return self._basic_ats_score(resume_text, job_description)
+
+        try:
+            # Get embeddings in a single batch
+            texts = [resume_text, job_description]
+            embeddings = self.model.encode(texts, show_progress_bar=False)
+            resume_embedding, job_embedding = embeddings
+
+            # Calculate similarity
+            similarity = cosine_similarity([resume_embedding], [job_embedding])[0][0]
+            ats_score = float(similarity * 100)
+
+            # Analyze format and content
+            format_analysis = self._analyze_format(resume_text)
+            content_analysis = self._analyze_content(resume_text, job_description)
+
+            return {
+                'ats_score': ats_score,
+                'format_analysis': format_analysis,
+                'content_analysis': content_analysis
+            }
+        except Exception as e:
+            logger.error(f"Error calculating ATS score: {str(e)}")
+            return self._basic_ats_score(resume_text, job_description)
+
+    def _basic_ats_score(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """Calculate basic ATS score when model is not available."""
+        # Simple keyword matching
+        resume_words = set(resume_text.lower().split())
+        job_words = set(job_description.lower().split())
+        
+        # Calculate basic match score
+        common_words = resume_words.intersection(job_words)
+        match_score = len(common_words) / len(job_words) * 100 if job_words else 0
+
+        return {
+            'ats_score': match_score * 0.8,  # ATS score is typically lower than match score
+            'format_analysis': {
+                'score': 50,
+                'issues': ['Basic analysis only'],
+                'suggestions': ['Try again later for detailed format analysis']
+            },
+            'content_analysis': {
+                'keyword_match': len(common_words),
+                'missing_keywords': list(job_words - resume_words),
+                'suggestions': ['Add missing keywords to improve ATS score']
+            }
+        }
+
     def calculate_score(self, resume_data: Dict[str, Any], job_description: str) -> float:
         """
         Calculate ATS compatibility score between resume and job description.
@@ -75,8 +140,15 @@ class ATSScorer:
         
         return ' '.join(sections)
 
-# Initialize global scorer instance
-ats_scorer = ATSScorer()
+# Initialize global ATS scorer instance
+_ats_scorer = None
+
+def get_ats_scorer() -> ATSScorer:
+    """Get the global ATS scorer instance."""
+    global _ats_scorer
+    if _ats_scorer is None:
+        _ats_scorer = ATSScorer()
+    return _ats_scorer
 
 def calculate_ats_score(resume_data: Dict[str, Any], job_description: str) -> float:
     """
@@ -89,4 +161,4 @@ def calculate_ats_score(resume_data: Dict[str, Any], job_description: str) -> fl
     Returns:
         ATS compatibility score (0-100)
     """
-    return ats_scorer.calculate_score(resume_data, job_description) 
+    return get_ats_scorer().calculate_score(resume_data, job_description) 

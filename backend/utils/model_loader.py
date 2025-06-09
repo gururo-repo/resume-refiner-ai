@@ -6,10 +6,16 @@ from sentence_transformers import SentenceTransformer
 import torch
 from pathlib import Path
 import joblib
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from sklearn.preprocessing import StandardScaler
 import google.generativeai as genai
 from dotenv import load_dotenv
+from .groq_analyzer import get_groq_analysis
+from sklearn.metrics.pairwise import cosine_similarity
+import time
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +29,17 @@ CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 torch.hub.set_dir(CACHE_DIR)
 
+# Configure requests session with retry strategy
+session = requests.Session()
+retry_strategy = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
 # Global variables for singleton pattern
 _loaded_models = None
 _match_model = None
@@ -30,310 +47,162 @@ _feature_scaler = None
 _model_features = None
 _sentence_transformer = None
 _genai_model = None
+_model_loader = None
 
 class ModelLoader:
-    def __init__(self):
-        self.models_dir = os.path.join('models')
-        self.initialize_models()
+    """Handles loading and management of various models with fallback mechanisms."""
     
-    def initialize_models(self):
-        """Initialize all ML models and GenAI."""
+    def __init__(self):
+        """Initialize the model loader."""
+        self.sentence_transformer = None
+        self.initialized = False
+        self.use_groq = True  # Start with Groq enabled
+        self._initialize_models()
+
+    def _initialize_models(self):
+        """Initialize all required models."""
         try:
-            # Create models directory if it doesn't exist
-            os.makedirs(self.models_dir, exist_ok=True)
-            
-            # Initialize GenAI
-            self._initialize_genai()
-            
-            # Initialize Sentence Transformer for fallback
-            self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-            
-            # Load or initialize job matching model (fallback)
-            self.job_matcher = self._load_or_create_model('job_matching_model.pkl')
-            self.job_scaler = self._load_or_create_model('job_scaler.pkl')
-            self.job_features = self._load_or_create_model('job_features.pkl')
-            
+            # Initialize sentence transformer
+            self.sentence_transformer = self._load_sentence_transformer()
+            self.initialized = True
+            logger.info("Successfully initialized all models")
         except Exception as e:
             logger.error(f"Error initializing models: {str(e)}")
-            raise
-    
-    def _initialize_genai(self):
-        """Initialize Google Generative AI."""
-        try:
-            api_key = os.getenv('GOOGLE_API_KEY')
-            if not api_key:
-                logger.warning("Google API key not found. GenAI features will be disabled.")
-                return
-            
-            genai.configure(api_key=api_key)
-            
-            # List available models and their capabilities
-            models = genai.list_models()
-            available_models = [model.name for model in models]
-            logger.info(f"Available GenAI models: {available_models}")
-            
-            # Try to use gemini-1.5-pro first
-            model = "models/gemini-1.5-pro"
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-            
-            if model in available_models:
-                self.genai_model = genai.GenerativeModel(
-                    model_name=model,
-                    generation_config={
-                        'temperature': 0.7,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 2048,
-                    }
-                )
-                logger.info(f"Successfully initialized GenAI model: {model}")
-                return
-            
-            # Fallback to gemini-1.0-pro
-            model = "models/gemini-1.0-pro"
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-            
-            if model in available_models:
-                self.genai_model = genai.GenerativeModel(
-                    model_name=model,
-                    generation_config={
-                        'temperature': 0.7,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 2048,
-                    }
-                )
-                logger.info(f"Successfully initialized GenAI model: {model}")
-                return
-            
-            logger.warning("No suitable GenAI model found. GenAI features will be disabled.")
-            self.genai_model = None
-            
-        except Exception as e:
-            logger.error(f"Error initializing GenAI: {str(e)}")
-            self.genai_model = None
-    
-    def _load_or_create_model(self, model_name: str):
-        """Load existing model or return None if not found."""
-        try:
-            model_path = os.path.join(self.models_dir, model_name)
-            if os.path.exists(model_path):
-                return joblib.load(model_path)
-            return None
-        except Exception as e:
-            logger.error(f"Error loading model {model_name}: {str(e)}")
-            return None
-    
-    def predict_job_match(self, resume_data: Dict[str, Any], job_description: str) -> float:
-        """Predict job match score using GenAI first, then fallback to ML model."""
-        try:
-            # Try GenAI first
-            if self.genai_model:
-                try:
-                    match_score = self._get_genai_match_score(resume_data, job_description)
-                    if match_score is not None:
-                        return match_score
-                except Exception as e:
-                    logger.warning(f"GenAI prediction failed, falling back to ML model: {str(e)}")
-            
-            # Fallback to ML model
-            if self.job_matcher and self.job_scaler and self.job_features:
-                try:
-                    features = self._prepare_job_match_features(resume_data, job_description)
-                    features_scaled = self.job_scaler.transform(features.reshape(1, -1))
-                    match_score = self.job_matcher.predict(features_scaled)[0]
-                    return float(match_score)
-                except Exception as e:
-                    logger.warning(f"ML model prediction failed, falling back to basic match: {str(e)}")
-            
-            # Final fallback to basic matching
-            return self._calculate_basic_match(resume_data, job_description)
-            
-        except Exception as e:
-            logger.error(f"Error predicting job match: {str(e)}")
-            return 0.0
-    
-    def _get_genai_match_score(self, resume_data: Dict[str, Any], job_description: str) -> Optional[float]:
-        """Get job match score using GenAI."""
-        try:
-            if not self.genai_model:
-                logger.warning("GenAI model not initialized")
-                return None
+            self.initialized = False
 
-            prompt = self._prepare_match_prompt(resume_data, job_description)
-            response = self.genai_model.generate_content(prompt)
-            
-            try:
-                # Parse response to get match score
-                response_text = response.text.strip()
-                # Extract score from response
-                if 'match score:' in response_text.lower():
-                    score_text = response_text.lower().split('match score:')[1].strip()
-                    # Convert percentage to decimal if needed
-                    if '%' in score_text:
-                        score = float(score_text.replace('%', '')) / 100
+    def _load_sentence_transformer(self) -> Optional[SentenceTransformer]:
+        """Load the sentence transformer model with retry logic."""
+        try:
+            # Set environment variables
+            os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = CACHE_DIR
+            os.environ['TRANSFORMERS_CACHE'] = CACHE_DIR
+            os.environ['HF_HOME'] = CACHE_DIR
+
+            # Try loading with increased timeout and retries
+            max_retries = 5
+            retry_delay = 10
+            timeout = 30
+
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Loading sentence transformer (attempt {attempt + 1}/{max_retries})...")
+                    
+                    # Check for cached model
+                    model_path = os.path.join(CACHE_DIR, 'all-MiniLM-L6-v2')
+                    if os.path.exists(model_path):
+                        logger.info("Using cached model")
+                        model = SentenceTransformer(
+                            model_path,
+                            device='cpu',
+                            cache_folder=CACHE_DIR
+                        )
                     else:
-                        score = float(score_text)
-                    return min(max(score, 0.0), 1.0)  # Ensure score is between 0 and 1
-                else:
-                    # Try to find any number in the response
-                    import re
-                    numbers = re.findall(r'\d+\.?\d*', response_text)
-                    if numbers:
-                        score = float(numbers[0])
-                        if score > 1:  # If it's a percentage
-                            score = score / 100
-                        return min(max(score, 0.0), 1.0)
-                    return None
-            except (ValueError, AttributeError) as e:
-                logger.warning(f"Could not parse GenAI response as score: {str(e)}")
-                return None
-                
+                        logger.info("Downloading model from HuggingFace")
+                        model = SentenceTransformer(
+                            'all-MiniLM-L6-v2',
+                            device='cpu',
+                            cache_folder=CACHE_DIR
+                        )
+                    
+                    # Test the model
+                    test_text = "Testing model initialization"
+                    model.encode(test_text)
+                    
+                    logger.info("Successfully loaded sentence transformer")
+                    return model
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        timeout *= 2
+                    else:
+                        logger.error(f"All attempts to load model failed: {str(e)}")
+                        return None
         except Exception as e:
-            logger.error(f"Error getting GenAI match score: {str(e)}")
+            logger.error(f"Error in sentence transformer initialization: {str(e)}")
             return None
-    
-    def _prepare_match_prompt(self, resume_data: Dict[str, Any], job_description: str) -> str:
-        """Prepare prompt for GenAI match score prediction."""
-        resume_text = self._prepare_resume_text(resume_data)
+
+    def get_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
+        """
+        Get embeddings for a list of texts.
         
-        prompt = f"""Analyze the match between this resume and job description.
-        Resume:
-        {resume_text}
-        
-        Job Description:
-        {job_description}
-        
-        Based on the above, provide a detailed analysis including:
-        1. Match Score: [provide a score between 0 and 1]
-        2. Strengths: [list key strengths that match the job requirements]
-        3. Weaknesses: [list areas that need improvement]
-        4. Recommendations: [suggest specific improvements]
-        
-        Format your response with clear sections and bullet points."""
-        
-        return prompt
-    
-    def _prepare_job_match_features(self, resume_data: Dict[str, Any], job_description: str) -> np.ndarray:
-        """Prepare features for job matching."""
-        # Extract skills
-        resume_skills = set(resume_data.get('skills', []))
-        job_skills = self._extract_skills_from_text(job_description)
-        
-        # Calculate metrics
-        jaccard_similarity = self._calculate_jaccard_similarity(resume_skills, job_skills)
-        common_skills_count = len(resume_skills.intersection(job_skills))
-        skill_vector_similarity = self._calculate_skill_vector_similarity(resume_data, job_description)
-        
-        # Calculate additional features
-        skill_count_diff = abs(len(resume_skills) - len(job_skills))
-        skill_count_ratio = common_skills_count / max(1, len(job_skills))
-        skills_density = len(resume_skills) / max(1, len(resume_data.get('raw_text', '').split()))
-        
-        return np.array([
-            jaccard_similarity,
-            common_skills_count,
-            skill_vector_similarity,
-            skill_count_diff,
-            skill_count_ratio,
-            skills_density
-        ])
-    
-    def _calculate_basic_match(self, resume_data: Dict[str, Any], job_description: str) -> float:
-        """Calculate basic match score when ML model is not available."""
+        Args:
+            texts: List of texts to get embeddings for
+            
+        Returns:
+            numpy array of embeddings or None if model is not available
+        """
+        if not self.initialized or self.sentence_transformer is None:
+            logger.warning("Sentence transformer not available, using basic embeddings")
+            return self._get_basic_embeddings(texts)
+
         try:
-            # Extract skills
-            resume_skills = set(resume_data.get('skills', []))
-            job_skills = self._extract_skills_from_text(job_description)
-            
-            # Calculate metrics
-            jaccard_similarity = self._calculate_jaccard_similarity(resume_skills, job_skills)
-            common_skills_count = len(resume_skills.intersection(job_skills))
-            skill_vector_similarity = self._calculate_skill_vector_similarity(resume_data, job_description)
-            
-            # Calculate weighted score with adjusted weights
-            match_score = (
-                0.4 * jaccard_similarity +  # Increased weight for skill match
-                0.3 * (common_skills_count / max(1, len(job_skills))) +  # Increased weight for common skills
-                0.3 * skill_vector_similarity  # Reduced weight for semantic similarity
-            )
-            
-            # Scale the score to be more lenient
-            scaled_score = match_score * 1.5  # Increase scores by 50%
-            return min(float(scaled_score), 1.0)  # Cap at 1.0
-            
+            return self.sentence_transformer.encode(texts)
         except Exception as e:
-            logger.error(f"Error calculating basic match: {str(e)}")
-            return 0.0
-    
-    def _calculate_jaccard_similarity(self, set1: set, set2: set) -> float:
-        """Calculate Jaccard similarity between two sets."""
-        if not set1 or not set2:
-            return 0.0
-        intersection = len(set1.intersection(set2))
-        union = len(set1.union(set2))
-        return intersection / union if union > 0 else 0.0
-    
-    def _calculate_skill_vector_similarity(self, resume_data: Dict[str, Any], job_description: str) -> float:
-        """Calculate semantic similarity between resume and job description."""
+            logger.error(f"Error getting embeddings: {str(e)}")
+            return self._get_basic_embeddings(texts)
+
+    def _get_basic_embeddings(self, texts: List[str]) -> np.ndarray:
+        """Generate basic embeddings when the model is not available."""
+        # Simple TF-IDF like embedding
+        all_words = set()
+        for text in texts:
+            all_words.update(text.lower().split())
+        
+        word_to_idx = {word: idx for idx, word in enumerate(all_words)}
+        embeddings = np.zeros((len(texts), len(word_to_idx)))
+        
+        for i, text in enumerate(texts):
+            words = text.lower().split()
+            for word in words:
+                if word in word_to_idx:
+                    embeddings[i, word_to_idx[word]] += 1
+        
+        # Normalize embeddings
+        row_sums = embeddings.sum(axis=1)
+        embeddings = embeddings / row_sums[:, np.newaxis]
+        
+        return embeddings
+
+    def try_groq_analysis(self, resume_text: str, job_description: str) -> Optional[Dict[str, Any]]:
+        """
+        Try to get analysis from Groq, with fallback to local models if it fails.
+        
+        Args:
+            resume_text: The resume text to analyze
+            job_description: The job description text
+            
+        Returns:
+            Analysis results from Groq if successful, None if failed
+        """
+        if not self.use_groq:
+            logger.info("Groq analysis disabled, using local models")
+            return None
+
         try:
-            # Combine relevant sections
-            resume_text = self._prepare_resume_text(resume_data)
-            
-            # Encode texts
-            resume_embedding = self.sentence_model.encode(resume_text, convert_to_tensor=True)
-            job_embedding = self.sentence_model.encode(job_description, convert_to_tensor=True)
-            
-            # Calculate similarity
-            similarity = np.dot(resume_embedding, job_embedding) / (
-                np.linalg.norm(resume_embedding) * np.linalg.norm(job_embedding)
-            )
-            
-            return float(similarity)
-            
+            analysis = get_groq_analysis(resume_text, job_description)
+            if analysis:
+                logger.info("Successfully got analysis from Groq")
+                return analysis
+            else:
+                logger.warning("Groq analysis returned empty result")
+                self.use_groq = False
+                return None
         except Exception as e:
-            logger.error(f"Error calculating skill vector similarity: {str(e)}")
-            return 0.0
-    
-    def _prepare_resume_text(self, resume_data: Dict[str, Any]) -> str:
-        """Prepare resume text for analysis."""
-        sections = []
-        
-        # Add skills section
-        if 'skills' in resume_data:
-            sections.append(' '.join(resume_data['skills']))
-        
-        # Add experience section
-        if 'experience' in resume_data['sections']:
-            sections.append(resume_data['sections']['experience'])
-        
-        # Add education section
-        if 'education' in resume_data['sections']:
-            sections.append(resume_data['sections']['education'])
-        
-        return ' '.join(sections)
-    
-    def _extract_skills_from_text(self, text: str) -> set:
-        """Extract skills from text."""
-        # Common technical skills
-        technical_skills = {
-            'python', 'java', 'javascript', 'c++', 'c#', 'ruby', 'php',
-            'html', 'css', 'react', 'angular', 'vue', 'node.js', 'express',
-            'django', 'flask', 'spring', 'sql', 'nosql', 'mongodb', 'postgresql',
-            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'git', 'agile',
-            'scrum', 'machine learning', 'ai', 'data science', 'big data',
-            'devops', 'ci/cd', 'testing', 'security', 'networking'
-        }
-        
-        text = text.lower()
-        return {skill for skill in technical_skills if skill in text}
+            logger.error(f"Error in Groq analysis: {str(e)}")
+            self.use_groq = False
+            return None
 
 # Initialize global model loader instance
-model_loader = ModelLoader()
+_model_loader = None
 
 def get_model_loader() -> ModelLoader:
     """Get the global model loader instance."""
-    return model_loader
+    global _model_loader
+    if _model_loader is None:
+        _model_loader = ModelLoader()
+    return _model_loader
 
 def load_models():
     """
@@ -424,12 +293,61 @@ def get_model_features():
         load_models()
     return _model_features
 
-def get_sentence_transformer():
-    """
-    Get the sentence transformer model.
-    """
+def get_sentence_transformer() -> SentenceTransformer:
+    """Get or initialize the global sentence transformer instance."""
+    global _sentence_transformer
     if _sentence_transformer is None:
-        load_models()
+        try:
+            # Suppress unnecessary warnings
+            import warnings
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            
+            # Set environment variables to optimize loading
+            os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = CACHE_DIR
+            os.environ['TRANSFORMERS_CACHE'] = CACHE_DIR
+            os.environ['HF_HOME'] = CACHE_DIR
+            
+            # Create cache directory if it doesn't exist
+            Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+            
+            # Try loading with increased timeout and retries
+            max_retries = 5
+            retry_delay = 10  # seconds
+            timeout = 30  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempting to load sentence transformer model (attempt {attempt + 1}/{max_retries})...")
+                    
+                    # Configure model loading with increased timeout
+                    _sentence_transformer = SentenceTransformer(
+                        'all-MiniLM-L6-v2',
+                        device='cpu',
+                        cache_folder=CACHE_DIR,
+                        show_progress_bar=False,
+                        timeout=timeout
+                    )
+                    
+                    # Test the model with a simple encoding
+                    test_text = "Testing model initialization"
+                    _sentence_transformer.encode(test_text, show_progress_bar=False)
+                    
+                    logger.info("Successfully initialized sentence transformer model")
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        # Increase timeout for next attempt
+                        timeout *= 2
+                    else:
+                        logger.error(f"All attempts to load model failed: {str(e)}")
+                        raise
+            
+        except Exception as e:
+            logger.error(f"Error initializing sentence transformer: {str(e)}")
+            raise
     return _sentence_transformer
 
 def get_genai_model():

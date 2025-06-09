@@ -8,6 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer
 from .skill_matcher import skill_matcher, extract_skills
 import google.generativeai as genai
+from .groq_analyzer import get_groq_analysis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,7 +52,7 @@ class ResumeImprover:
             # Test API connection
             self._test_api_connection()
             
-            logger.info("Successfully initialized ResumeImprover with Google AI API (Flash model)")
+            logger.info("Successfully initialized ResumeImprover with Google AI API")
         except Exception as e:
             logger.error(f"Failed to initialize ResumeImprover: {str(e)}")
             raise
@@ -108,7 +109,7 @@ class ResumeImprover:
     def analyze_ats_compatibility(self, resume_text, job_description):
         """
         Analyze resume compatibility with job description using Google AI API first,
-        falling back to ML models if API fails.
+        falling back to Groq API, then ML models if both fail.
         """
         try:
             prompt = f"""You are an ATS (Applicant Tracking System) expert specializing in resume optimization.
@@ -135,7 +136,21 @@ Return the analysis in the following strict JSON format without any additional t
                 logger.info("Successfully completed ATS compatibility analysis using Google AI API")
                 return analysis
             except Exception as e:
-                logger.warning(f"Google AI API failed, falling back to ML models: {str(e)}")
+                logger.warning(f"Google AI API failed, trying Groq API: {str(e)}")
+                try:
+                    # Try Groq API
+                    groq_analysis = get_groq_analysis(resume_text, job_description)
+                    if groq_analysis and groq_analysis.get("ats_score", 0) > 0:
+                        return {
+                            "overall": groq_analysis["ats_score"],
+                            "keywords": groq_analysis["skills_analysis"]["matching_skills"],
+                            "missing_keywords": groq_analysis["skills_analysis"]["missing_skills"],
+                            "format_score": groq_analysis["format_analysis"]["score"],
+                            "suggestions": groq_analysis["improvement_tips"]
+                        }
+                except Exception as groq_error:
+                    logger.warning(f"Groq API failed, falling back to ML models: {str(groq_error)}")
+                
                 return self._fallback_ats_analysis(resume_text, job_description)
             
         except Exception as e:
@@ -145,7 +160,7 @@ Return the analysis in the following strict JSON format without any additional t
     def analyze_skills(self, resume_text, job_description):
         """
         Analyze skills in resume against job description using Google AI API first,
-        falling back to ML models if API fails.
+        falling back to Groq API, then ML models if both fail.
         """
         try:
             prompt = f"""You are an experienced technical recruiter and job matching specialist.
@@ -175,7 +190,23 @@ Return the analysis in the following strict JSON format without any additional t
                 logger.info("Successfully completed skills analysis using Google AI API")
                 return analysis
             except Exception as e:
-                logger.warning(f"Google AI API failed, falling back to ML models: {str(e)}")
+                logger.warning(f"Google AI API failed, trying Groq API: {str(e)}")
+                try:
+                    # Try Groq API
+                    groq_analysis = get_groq_analysis(resume_text, job_description)
+                    if groq_analysis and groq_analysis.get("job_match_score", 0) > 0:
+                        return {
+                            "score": groq_analysis["job_match_score"],
+                            "matching_skills": groq_analysis["skills_analysis"]["matching_skills"],
+                            "missing_skills": groq_analysis["skills_analysis"]["missing_skills"],
+                            "recommendations": groq_analysis["improvement_tips"],
+                            "relevance": groq_analysis["job_match_score"],
+                            "skill_gaps": [{"skill": skill, "importance": 50, "suggestion": ""} 
+                                         for skill in groq_analysis["skills_analysis"]["skill_gaps"]]
+                        }
+                except Exception as groq_error:
+                    logger.warning(f"Groq API failed, falling back to ML models: {str(groq_error)}")
+                
                 return skill_matcher.extract_and_match_skills(resume_text, job_description)
             
         except Exception as e:

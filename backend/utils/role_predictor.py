@@ -3,13 +3,14 @@ import json
 import numpy as np
 import logging
 from .genai_suggester import ResumeImprover
-from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer, get_model_loader
+from .model_loader import get_model_loader
 from .skill_matcher import extract_skills, SKILLS_DB
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import Dict, Any, Tuple, List
 import google.generativeai as genai
 from dotenv import load_dotenv
+from .groq_analyzer import get_groq_analysis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,215 +20,161 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 class RolePredictor:
+    """Predicts job roles based on resume and job description content."""
+    
     def __init__(self):
-        """Initialize the RolePredictor."""
-        self.genai_model = None
-        self._initialize_genai()
+        """Initialize the role predictor."""
+        self.model_loader = get_model_loader()
         self.role_categories = {
             'software_engineering': [
-                'software engineer', 'developer', 'programmer', 'full stack', 'frontend', 'backend',
-                'web developer', 'mobile developer', 'devops', 'sre', 'qa engineer'
+                'software', 'developer', 'engineer', 'programming', 'coding',
+                'frontend', 'backend', 'fullstack', 'web', 'mobile', 'application',
+                'java', 'python', 'javascript', 'typescript', 'react', 'angular',
+                'node.js', 'spring', 'django', 'flask', 'express'
             ],
             'data_science': [
-                'data scientist', 'data analyst', 'machine learning', 'ai engineer', 'ml engineer',
-                'data engineer', 'business intelligence', 'bi analyst'
+                'data', 'analyst', 'scientist', 'machine learning', 'ai',
+                'artificial intelligence', 'deep learning', 'statistics',
+                'analytics', 'big data', 'data mining', 'predictive modeling',
+                'python', 'r', 'sql', 'pandas', 'numpy', 'tensorflow', 'pytorch'
+            ],
+            'devops': [
+                'devops', 'cloud', 'aws', 'azure', 'gcp', 'kubernetes',
+                'docker', 'ci/cd', 'jenkins', 'gitlab', 'github actions',
+                'terraform', 'ansible', 'puppet', 'chef', 'monitoring',
+                'logging', 'infrastructure', 'automation'
             ],
             'product_management': [
-                'product manager', 'product owner', 'project manager', 'technical product manager',
-                'product analyst', 'product marketing'
+                'product', 'manager', 'pm', 'agile', 'scrum', 'kanban',
+                'jira', 'confluence', 'roadmap', 'backlog', 'sprint',
+                'stakeholder', 'requirements', 'user stories', 'metrics',
+                'analytics', 'strategy', 'vision'
             ],
             'design': [
-                'ui designer', 'ux designer', 'graphic designer', 'interaction designer',
-                'visual designer', 'product designer'
-            ],
-            'marketing': [
-                'marketing manager', 'digital marketing', 'content marketing', 'social media',
-                'growth marketing', 'seo specialist'
-            ],
-            'sales': [
-                'sales representative', 'account executive', 'business development',
-                'sales manager', 'account manager'
+                'design', 'ui', 'ux', 'graphic', 'creative', 'visual',
+                'interaction', 'user experience', 'user interface', 'wireframe',
+                'prototype', 'figma', 'sketch', 'adobe', 'photoshop',
+                'illustrator', 'invision', 'research', 'usability'
             ]
         }
-        logger.info("Successfully initialized RolePredictor")
 
-    def _initialize_genai(self):
-        """Initialize Google Generative AI."""
-        try:
-            api_key = os.getenv('GOOGLE_API_KEY')
-            if not api_key:
-                logger.warning("Google API key not found. GenAI features will be disabled.")
-                return
-            
-            genai.configure(api_key=api_key)
-            
-            # List available models and their capabilities
-            models = genai.list_models()
-            available_models = [model.name for model in models]
-            logger.info(f"Available GenAI models: {available_models}")
-            
-            # Try to use gemini-1.5-pro first
-            model = "models/gemini-1.5-pro"
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-            
-            if model in available_models:
-                self.genai_model = genai.GenerativeModel(
-                    model_name=model,
-                    generation_config={
-                        'temperature': 0.7,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 2048,
-                    }
-                )
-                logger.info(f"Successfully initialized GenAI model: {model}")
-                return
-            
-            # Fallback to gemini-1.0-pro
-            model = "models/gemini-1.0-pro"
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-            
-            if model in available_models:
-                self.genai_model = genai.GenerativeModel(
-                    model_name=model,
-                    generation_config={
-                        'temperature': 0.7,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 2048,
-                    }
-                )
-                logger.info(f"Successfully initialized GenAI model: {model}")
-                return
-            
-            logger.warning("No suitable GenAI model found. GenAI features will be disabled.")
-            self.genai_model = None
-            
-        except Exception as e:
-            logger.error(f"Error initializing GenAI: {str(e)}")
-            self.genai_model = None
-
-    def predict_role(self, job_description: str) -> Tuple[str, float]:
+    def predict_role(self, resume_text: str, job_description: str) -> Dict[str, Any]:
         """
-        Predict the role category from job description.
-        Returns (role_category, confidence_score)
+        Predict the most likely role based on resume and job description.
+        
+        Args:
+            resume_text: The resume text to analyze
+            job_description: The job description text
+            
+        Returns:
+            Dictionary containing role prediction and confidence
         """
         try:
-            # Try GenAI first
-            if self.genai_model:
-                try:
-                    role, confidence = self._get_genai_role_prediction(job_description)
-                    if role and confidence:
-                        return role, confidence
-                except Exception as e:
-                    logger.warning(f"GenAI prediction failed, falling back to keyword matching: {str(e)}")
+            # First try Groq analysis
+            groq_analysis = self.model_loader.try_groq_analysis(resume_text, job_description)
+            if groq_analysis and 'role_analysis' in groq_analysis:
+                logger.info("Using Groq role analysis")
+                return groq_analysis['role_analysis']
+
+            # If Groq fails, fall back to local models
+            logger.info("Falling back to local model role prediction")
+            
+            # Get embeddings for both texts
+            texts = [resume_text, job_description]
+            embeddings = self.model_loader.get_embeddings(texts)
+            
+            if embeddings is not None:
+                # Calculate similarity with each role category
+                role_scores = {}
+                for role, keywords in self.role_categories.items():
+                    # Get embeddings for role keywords
+                    keyword_embeddings = self.model_loader.get_embeddings(keywords)
+                    if keyword_embeddings is not None:
+                        # Calculate average similarity with role keywords
+                        similarities = cosine_similarity(embeddings, keyword_embeddings)
+                        role_scores[role] = float(np.mean(similarities))
+                
+                if role_scores:
+                    # Get the role with highest score
+                    primary_role = max(role_scores.items(), key=lambda x: x[1])
+                    confidence = primary_role[1] * 100
+                    
+                    return {
+                        'primary_role': primary_role[0].replace('_', ' ').title(),
+                        'match_confidence': round(confidence, 2),
+                        'role_scores': {
+                            role.replace('_', ' ').title(): round(score * 100, 2)
+                            for role, score in role_scores.items()
+                        },
+                        'analysis_source': 'local_models'
+                    }
             
             # Fallback to keyword matching
-            return self._keyword_based_role_prediction(job_description)
+            return self._keyword_based_prediction(resume_text, job_description)
             
         except Exception as e:
-            logger.error(f"Error predicting role: {str(e)}")
-            return 'unknown', 0.0
+            logger.error(f"Error in role prediction: {str(e)}")
+            return self._keyword_based_prediction(resume_text, job_description)
 
-    def _get_genai_role_prediction(self, job_description: str) -> Tuple[str, float]:
-        """Get role prediction using GenAI."""
+    def _keyword_based_prediction(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """Fallback method using keyword matching."""
         try:
-            if not self.genai_model:
-                logger.warning("GenAI model not initialized")
-                return None, None
-
-            prompt = self._prepare_role_prompt(job_description)
-            try:
-                # Configure generation parameters for better results
-                generation_config = {
-                    'temperature': 0.7,
-                    'top_p': 0.8,
-                    'top_k': 40,
-                    'max_output_tokens': 2048,
-                }
-                
-                response = self.genai_model.generate_content(
-                    prompt,
-                    generation_config=generation_config
-                )
-                
-                response_text = response.text.strip().lower()
-                
-                # Extract role and confidence
-                if 'role:' in response_text and 'confidence:' in response_text:
-                    role_part = response_text.split('role:')[1].split('confidence:')[0].strip()
-                    confidence_part = response_text.split('confidence:')[1].strip()
-                    
-                    # Get role
-                    role = role_part.split()[0]  # Take first word as role
-                    
-                    # Get confidence
-                    try:
-                        confidence = float(confidence_part.replace('%', '')) / 100
-                    except ValueError:
-                        confidence = 0.5  # Default confidence if parsing fails
-                    
-                    return role, confidence
-                else:
-                    logger.warning("Could not parse GenAI response format")
-                    return None, None
-                    
-            except Exception as e:
-                logger.warning(f"Error generating content with GenAI: {str(e)}")
-                return None, None
-                
-        except Exception as e:
-            logger.error(f"Error getting GenAI role prediction: {str(e)}")
-            return None, None
-
-    def _prepare_role_prompt(self, job_description: str) -> str:
-        """Prepare prompt for GenAI role prediction."""
-        return f"""Analyze this job description and predict the role category.
-        Job Description:
-        {job_description}
-        
-        Respond in this format:
-        Role: [role_category]
-        Confidence: [confidence_score as percentage]
-        
-        Role categories should be one of: {', '.join(self.role_categories.keys())}
-        Confidence should be a number between 0 and 100."""
-
-    def _keyword_based_role_prediction(self, job_description: str) -> Tuple[str, float]:
-        """Predict role based on keyword matching."""
-        try:
-            job_desc_lower = job_description.lower()
-            max_matches = 0
-            best_role = 'unknown'
+            # Combine texts for analysis
+            combined_text = (resume_text + ' ' + job_description).lower()
             
-            # Count keyword matches for each role
-            role_matches = {}
+            # Count role-related keywords
+            role_scores = {}
             for role, keywords in self.role_categories.items():
-                matches = sum(1 for keyword in keywords if keyword in job_desc_lower)
-                role_matches[role] = matches
-                if matches > max_matches:
-                    max_matches = matches
-                    best_role = role
+                score = sum(1 for keyword in keywords if keyword in combined_text)
+                role_scores[role] = score
             
-            # Calculate confidence based on matches
-            total_keywords = sum(len(keywords) for keywords in self.role_categories.values())
-            confidence = max_matches / total_keywords if total_keywords > 0 else 0.0
+            if role_scores:
+                # Get the role with highest score
+                primary_role = max(role_scores.items(), key=lambda x: x[1])
+                confidence = (primary_role[1] / len(self.role_categories[primary_role[0]])) * 100
+                
+                return {
+                    'primary_role': primary_role[0].replace('_', ' ').title(),
+                    'match_confidence': round(confidence, 2),
+                    'role_scores': {
+                        role.replace('_', ' ').title(): round((score / len(self.role_categories[role])) * 100, 2)
+                        for role, score in role_scores.items()
+                    },
+                    'analysis_source': 'keyword_matching'
+                }
             
-            return best_role, confidence
+            return {
+                'primary_role': 'Unknown',
+                'match_confidence': 0,
+                'role_scores': {},
+                'analysis_source': 'fallback'
+            }
             
         except Exception as e:
-            logger.error(f"Error in keyword-based role prediction: {str(e)}")
-            return 'unknown', 0.0
+            logger.error(f"Error in keyword-based prediction: {str(e)}")
+            return {
+                'primary_role': 'Unknown',
+                'match_confidence': 0,
+                'role_scores': {},
+                'analysis_source': 'fallback'
+            }
 
-# Create a singleton instance
-role_predictor = RolePredictor()
+# Initialize global role predictor instance
+_role_predictor = None
+
+def get_role_predictor() -> RolePredictor:
+    """Get the global role predictor instance."""
+    global _role_predictor
+    if _role_predictor is None:
+        _role_predictor = RolePredictor()
+    return _role_predictor
 
 def predict_roles(resume_text, job_description):
     """
     Predict roles based on resume and job description.
     This is the main entry point for role prediction.
     """
-    return role_predictor.predict_roles(resume_text, job_description)
+    return get_role_predictor().predict_role(resume_text, job_description)
 
 def _model_based_role_prediction(resume_text):
     """

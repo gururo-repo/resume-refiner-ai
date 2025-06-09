@@ -26,13 +26,16 @@ const AnalyzerPage = () => {
 
     setIsAnalyzing(true);
     setError('');
+    setResults(null);
 
     try {
+      console.log('Starting analysis...');
       const response = await analyzeResume(resumeFile, jobDescription);
+      console.log('Analysis complete:', response.data);
       setResults(response.data);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to analyze resume. Please try again.');
       console.error('Analysis error:', err);
+      setError(err.response?.data?.error || 'Failed to analyze resume. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -43,18 +46,12 @@ const AnalyzerPage = () => {
 
     try {
       const response = await generateReport(results);
-      
-      // Create blob from response
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
-      
-      // Download PDF
       const link = document.createElement('a');
       link.href = url;
       link.download = 'resume_analysis_report.pdf';
       link.click();
-      
-      // Cleanup
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to generate report');
@@ -62,25 +59,40 @@ const AnalyzerPage = () => {
     }
   };
 
-  const getScoreColor = (score) => {
-    if (score >= 80) return 'text-green-400';
-    if (score >= 60) return 'text-yellow-400';
-    return 'text-red-400';
-  };
+  const ScoreCard = ({ title, score, color }) => (
+    <div className="bg-white/10 rounded-lg p-4 text-center">
+      <h3 className="text-lg font-semibold mb-2">{title}</h3>
+      <div className="text-3xl font-bold" style={{ color }}>
+        {score}%
+      </div>
+    </div>
+  );
 
-  const getScoreStatus = (score) => {
-    if (score >= 80) return 'Excellent';
-    if (score >= 60) return 'Good';
-    if (score >= 40) return 'Fair';
-    return 'Needs Improvement';
-  };
+  const AnalysisSection = ({ title, items, icon: Icon, color }) => (
+    <div className="bg-white/10 rounded-lg p-6">
+      <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+        <Icon className={`h-6 w-6 ${color}`} />
+        {title}
+      </h2>
+      <ul className="space-y-3">
+        {items.map((item, index) => (
+          <li key={index} className="flex items-start gap-2">
+            <Icon className={`h-5 w-5 mt-1 ${color}`} />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-black text-white p-4">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold gradient-title mb-4">Resume Analyzer</h1>
+          <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            Resume Analyzer
+          </h1>
           <p className="text-gray-300 text-lg">
             Upload your resume and job description to get AI-powered insights
           </p>
@@ -89,29 +101,29 @@ const AnalyzerPage = () => {
         {/* Input Section */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
           {/* Resume Upload */}
-          <Card className="glass-card">
+          <Card className="bg-white/5 border-white/10">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-cyan-100">
+              <CardTitle className="flex items-center gap-2 text-cyan-400">
                 <Upload className="h-5 w-5" />
                 Resume Upload
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="border-2 border-dashed border-gray-600 rounded-lg p-6 text-center hover:border-cyan-500 transition-colors">
+              <div className="border-2 border-dashed border-white/20 rounded-lg p-6 text-center hover:border-cyan-500 transition-colors">
                 <input
                   type="file"
-                  accept=".pdf,.doc,.docx,.txt"
+                  accept=".pdf,.doc,.docx"
                   onChange={handleFileUpload}
                   className="hidden"
                   id="resume-upload"
                 />
                 <label htmlFor="resume-upload" className="cursor-pointer">
-                  <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <FileText className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">
                     {resumeFile ? resumeFile.name : 'Click to upload resume'}
                   </p>
                   <p className="text-sm text-gray-500">
-                    Supports PDF, DOC, DOCX, TXT
+                    Supports PDF, DOC, DOCX
                   </p>
                 </label>
               </div>
@@ -119,9 +131,9 @@ const AnalyzerPage = () => {
           </Card>
 
           {/* Job Description */}
-          <Card className="glass-card">
+          <Card className="bg-white/5 border-white/10">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-cyan-100">
+              <CardTitle className="flex items-center gap-2 text-cyan-400">
                 <FileText className="h-5 w-5" />
                 Job Description
               </CardTitle>
@@ -131,7 +143,7 @@ const AnalyzerPage = () => {
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
                 placeholder="Paste the job description here..."
-                className="w-full h-64 p-4 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-cyan-500 focus:outline-none"
+                className="w-full h-64 p-4 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-400 focus:border-cyan-500 focus:outline-none"
               />
             </CardContent>
           </Card>
@@ -139,7 +151,7 @@ const AnalyzerPage = () => {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-900/50 border border-red-500 rounded-lg flex items-center gap-2">
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500 rounded-lg flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-red-400" />
             <span className="text-red-300">{error}</span>
           </div>
@@ -150,7 +162,7 @@ const AnalyzerPage = () => {
           <button
             onClick={handleAnalyze}
             disabled={isAnalyzing || !resumeFile || !jobDescription.trim()}
-            className="btn-primary text-lg px-8 py-4 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg text-white font-semibold text-lg hover:from-cyan-600 hover:to-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 mx-auto"
           >
             {isAnalyzing ? (
               <>
@@ -169,227 +181,98 @@ const AnalyzerPage = () => {
         {/* Results Section */}
         {results && (
           <div className="space-y-6">
-            {/* Score Overview */}
-            <div className="grid md:grid-cols-3 gap-6">
-              <Card className="glass-card text-center">
-                <CardContent className="pt-6">
-                  <Target className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Match Score</h3>
-                  <div className={`text-3xl font-bold ${getScoreColor(results.match_score)}`}>
-                    {results.match_score}%
-                  </div>
-                  <p className="text-sm text-gray-400 mt-2">
-                    {getScoreStatus(results.match_score)}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card text-center">
-                <CardContent className="pt-6">
-                  <TrendingUp className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Role Match</h3>
-                  <div className="text-3xl font-bold text-cyan-400">
-                    {results.role_prediction?.category || 'Unknown'}
-                  </div>
-                  <p className="text-sm text-gray-400 mt-2">
-                    Confidence: {results.role_prediction?.confidence || 0}%
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card text-center">
-                <CardContent className="pt-6">
-                  <Brain className="h-12 w-12 text-cyan-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">AI Analysis</h3>
-                  <button
-                    onClick={handleDownloadReport}
-                    className="mt-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2 mx-auto"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Report
-                  </button>
-                </CardContent>
-              </Card>
+            {/* Scores Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <ScoreCard
+                title="ATS Score"
+                score={results.ats_score}
+                color="#22d3ee"
+              />
+              <ScoreCard
+                title="Job Match"
+                score={results.job_match_score}
+                color="#3b82f6"
+              />
+              <ScoreCard
+                title="Format Score"
+                score={results.format_analysis?.score || 0}
+                color="#8b5cf6"
+              />
             </div>
 
-            {/* Detailed Analysis */}
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Resume Data */}
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-cyan-400">
-                    <FileText className="h-5 w-5" />
-                    Resume Analysis
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Skills</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {results.resume_data?.skills?.map((skill, index) => (
-                          <span key={index} className="px-3 py-1 bg-cyan-900/50 text-cyan-300 rounded-full text-sm">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Experience</h4>
-                      <p className="text-gray-400">
-                        {results.resume_data?.experience?.[0] || 'No experience found'}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Education</h4>
-                      <p className="text-gray-400">
-                        {results.resume_data?.education?.[0] || 'No education found'}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Job Analysis */}
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-cyan-400">
-                    <Target className="h-5 w-5" />
-                    Job Analysis
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Required Skills</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {results.job_analysis?.required_skills?.map((skill, index) => (
-                          <span key={index} className="px-3 py-1 bg-cyan-900/50 text-cyan-300 rounded-full text-sm">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Experience Level</h4>
-                      <p className="text-gray-400">
-                        {results.job_analysis?.experience_level || 'Not specified'}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-300 mb-2">Education Requirements</h4>
-                      <p className="text-gray-400">
-                        {results.job_analysis?.education_requirements || 'Not specified'}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Main Analysis Sections */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <AnalysisSection
+                title="Strengths"
+                items={results.strengths}
+                icon={CheckCircle}
+                color="text-green-400"
+              />
+              <AnalysisSection
+                title="Areas for Improvement"
+                items={results.weaknesses}
+                icon={AlertCircle}
+                color="text-red-400"
+              />
             </div>
 
-            {/* Match Components */}
-            <Card className="glass-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-cyan-400">
-                  <TrendingUp className="h-5 w-5" />
-                  Match Components
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-3 gap-4">
-                  {results.match_components && Object.entries(results.match_components).map(([key, value]) => (
-                    <div key={key} className="text-center">
-                      <h4 className="font-semibold text-gray-300 mb-2 capitalize">
-                        {key.replace(/_/g, ' ')}
-                      </h4>
-                      <div className={`text-2xl font-bold ${getScoreColor(value)}`}>
-                        {value}%
-                      </div>
-                    </div>
-                  ))}
+            {/* Skills Analysis */}
+            <div className="bg-white/10 rounded-lg p-6">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <Target className="h-6 w-6 text-cyan-400" />
+                Skills Analysis
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-green-400">Matching Skills</h3>
+                  <ul className="space-y-2">
+                    {results.skills_analysis?.matching_skills?.map((skill, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <CheckCircle className="h-5 w-5 text-green-400" />
+                        <span>{skill}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </CardContent>
-            </Card>
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-red-400">Missing Skills</h3>
+                  <ul className="space-y-2">
+                    {results.skills_analysis?.missing_skills?.map((skill, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <AlertCircle className="h-5 w-5 text-red-400" />
+                        <span>{skill}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
 
-            {/* ATS Score Section */}
-            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                <h2 className="text-2xl font-bold mb-4">ATS Score Analysis</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex items-center justify-center mb-4">
-                            <div className="relative">
-                                <svg className="w-32 h-32">
-                                    <circle
-                                        className="text-gray-200"
-                                        strokeWidth="8"
-                                        stroke="currentColor"
-                                        fill="transparent"
-                                        r="56"
-                                        cx="64"
-                                        cy="64"
-                                    />
-                                    <circle
-                                        className="text-blue-600"
-                                        strokeWidth="8"
-                                        strokeDasharray={352}
-                                        strokeDashoffset={352 - (352 * (results.ats_score?.overall_score || 0)) / 100}
-                                        strokeLinecap="round"
-                                        stroke="currentColor"
-                                        fill="transparent"
-                                        r="56"
-                                        cx="64"
-                                        cy="64"
-                                    />
-                                </svg>
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-2xl font-bold">
-                                        {results.ats_score?.overall_score || 0}%
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            {results.ats_score?.components && Object.entries(results.ats_score.components).map(([key, value]) => (
-                                <div key={key} className="flex justify-between items-center">
-                                    <span className="capitalize">{key.replace('_', ' ')}</span>
-                                    <span className="font-semibold">{value}%</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="space-y-4">
-                        {results.ats_score?.strengths && results.ats_score.strengths.length > 0 && (
-                            <div>
-                                <h3 className="text-lg font-semibold text-green-600 mb-2">Strengths</h3>
-                                <ul className="list-disc list-inside space-y-1">
-                                    {results.ats_score.strengths.map((strength, index) => (
-                                        <li key={index} className="text-gray-700">{strength}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                        {results.ats_score?.weaknesses && results.ats_score.weaknesses.length > 0 && (
-                            <div>
-                                <h3 className="text-lg font-semibold text-red-600 mb-2">Areas for Improvement</h3>
-                                <ul className="list-disc list-inside space-y-1">
-                                    {results.ats_score.weaknesses.map((weakness, index) => (
-                                        <li key={index} className="text-gray-700">{weakness}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                        {results.ats_score?.improvements && results.ats_score.improvements.length > 0 && (
-                            <div>
-                                <h3 className="text-lg font-semibold text-blue-600 mb-2">Recommendations</h3>
-                                <ul className="list-disc list-inside space-y-1">
-                                    {results.ats_score.improvements.map((improvement, index) => (
-                                        <li key={index} className="text-gray-700">{improvement}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                    </div>
-                </div>
+            {/* Recommendations */}
+            <div className="bg-white/10 rounded-lg p-6">
+              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                <TrendingUp className="h-6 w-6 text-blue-400" />
+                Recommendations
+              </h2>
+              <ul className="space-y-3">
+                {results.improvements?.map((improvement, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <TrendingUp className="h-5 w-5 mt-1 text-blue-400" />
+                    <span>{improvement}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Download Report Button */}
+            <div className="text-center">
+              <button
+                onClick={handleDownloadReport}
+                className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg text-white font-semibold hover:from-purple-600 hover:to-pink-600 transition-all flex items-center gap-2 mx-auto"
+              >
+                <Download className="h-5 w-5" />
+                Download Full Report
+              </button>
             </div>
           </div>
         )}

@@ -3,6 +3,7 @@ from typing import Dict, Any
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from .groq_analyzer import get_groq_analysis
 
 # Load environment variables
 load_dotenv()
@@ -34,8 +35,53 @@ class GenAIFeedback:
             )
             logger.info(f"Successfully initialized GenAI model: {model}")
         except Exception as e:
-            logger.error(f"Error initializing GenAI: {str(e)}")
+            logger.error(f"Failed to initialize GenAI model: {str(e)}")
             self.model = None
+    
+    def generate_feedback(self, resume_text: str, job_description: str = None) -> Dict[str, Any]:
+        """
+        Generate feedback using Groq API first, then fallback to default feedback.
+        """
+        try:
+            # Try Groq API first
+            try:
+                groq_analysis = get_groq_analysis(resume_text, job_description)
+                if groq_analysis:
+                    logger.info("Successfully got feedback from Groq API")
+                    return {
+                        'strengths': groq_analysis.get('strengths', []),
+                        'weaknesses': groq_analysis.get('weaknesses', []),
+                        'improvements': groq_analysis.get('improvement_tips', []),
+                        'format_analysis': groq_analysis.get('format_analysis', {}),
+                        'skills_analysis': groq_analysis.get('skills_analysis', {})
+                    }
+            except Exception as e:
+                logger.warning(f"Groq feedback generation failed: {str(e)}")
+            
+            logger.info("Using default feedback as fallback")
+            return self._get_default_feedback()
+            
+        except Exception as e:
+            logger.error(f"Error generating feedback: {str(e)}")
+            return self._get_default_feedback()
+
+    def _get_default_feedback(self) -> Dict[str, Any]:
+        """Return default feedback when all methods fail."""
+        return {
+            'strengths': [],
+            'weaknesses': [],
+            'improvements': ['Unable to generate feedback'],
+            'format_analysis': {
+                'score': 0,
+                'issues': [],
+                'suggestions': []
+            },
+            'skills_analysis': {
+                'matching_skills': [],
+                'missing_skills': [],
+                'skill_gaps': []
+            }
+        }
     
     def get_feedback(self, resume_data: Dict[str, Any], job_description: str) -> Dict[str, Any]:
         """

@@ -9,6 +9,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 import scipy.sparse as sparse
 from sentence_transformers import SentenceTransformer
 from difflib import SequenceMatcher
+import logging
+from utils.model_loader import get_sentence_transformer
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global singleton instance
+_ats_scorer = None
 
 def _check_section_headers(resume_text, section_keywords):
     """Helper function to check for section headers"""
@@ -344,51 +353,162 @@ def ats_score(resume_text, job_keywords):
     
     return round(final_score * 100, 2)
 
+class ATSScorer:
+    def __init__(self):
+        """Initialize the ATS scorer."""
+        self.model = None
+        self.initialized = False
+        self._initialize_model()
+
+    def _initialize_model(self):
+        """Initialize the sentence transformer model."""
+        try:
+            logger.info("Getting sentence transformer model...")
+            self.model = get_sentence_transformer()
+            self.initialized = True
+        except Exception as e:
+            logger.error(f"Error initializing ATS scorer: {str(e)}")
+            self.initialized = False
+
+    def calculate_ats_score(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """
+        Calculate ATS score for a resume against a job description.
+        
+        Args:
+            resume_text: The resume text to analyze
+            job_description: The job description text
+            
+        Returns:
+            Dictionary containing ATS score and analysis
+        """
+        if not self.initialized:
+            logger.warning("ATS scorer not initialized, using basic scoring")
+            return self._basic_ats_score(resume_text, job_description)
+
+        try:
+            # Get embeddings in a single batch
+            texts = [resume_text, job_description]
+            embeddings = self.model.encode(texts, show_progress_bar=False)
+            resume_embedding, job_embedding = embeddings
+
+            # Calculate similarity
+            similarity = cosine_similarity([resume_embedding], [job_embedding])[0][0]
+            ats_score = float(similarity * 100)
+
+            # Analyze format and content in parallel
+            format_analysis = self._analyze_format(resume_text)
+            content_analysis = self._analyze_content(resume_text, job_description)
+
+            return {
+                'ats_score': ats_score,
+                'format_analysis': format_analysis,
+                'content_analysis': content_analysis
+            }
+        except Exception as e:
+            logger.error(f"Error calculating ATS score: {str(e)}")
+            return self._basic_ats_score(resume_text, job_description)
+
+    def _basic_ats_score(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """Calculate basic ATS score when model is not available."""
+        # Simple keyword matching
+        resume_words = set(resume_text.lower().split())
+        job_words = set(job_description.lower().split())
+        
+        # Calculate basic match score
+        common_words = resume_words.intersection(job_words)
+        match_score = len(common_words) / len(job_words) * 100 if job_words else 0
+
+        return {
+            'ats_score': match_score * 0.8,  # ATS score is typically lower than match score
+            'format_analysis': {
+                'score': 50,
+                'issues': ['Basic analysis only'],
+                'suggestions': ['Try again later for detailed format analysis']
+            },
+            'content_analysis': {
+                'keyword_match': len(common_words),
+                'missing_keywords': list(job_words - resume_words),
+                'suggestions': ['Add missing keywords to improve ATS score']
+            }
+        }
+
+    def _analyze_format(self, resume_text: str) -> Dict[str, Any]:
+        """Analyze resume format and structure."""
+        # Basic format analysis
+        sections = ['education', 'experience', 'skills', 'projects']
+        found_sections = [section for section in sections if section in resume_text.lower()]
+        
+        score = len(found_sections) / len(sections) * 100
+        
+        issues = []
+        if len(found_sections) < len(sections):
+            missing = set(sections) - set(found_sections)
+            issues.append(f"Missing sections: {', '.join(missing)}")
+        
+        suggestions = [
+            "Ensure all major sections are present",
+            "Use consistent formatting throughout",
+            "Include clear section headers"
+        ]
+        
+        return {
+            'score': score,
+            'issues': issues,
+            'suggestions': suggestions
+        }
+
+    def _analyze_content(self, resume_text: str, job_description: str) -> Dict[str, Any]:
+        """Analyze resume content against job description."""
+        # Extract keywords
+        resume_words = set(resume_text.lower().split())
+        job_words = set(job_description.lower().split())
+        
+        # Find matching and missing keywords
+        matching_keywords = resume_words.intersection(job_words)
+        missing_keywords = job_words - resume_words
+        
+        # Generate suggestions
+        suggestions = []
+        if missing_keywords:
+            suggestions.append(f"Add these keywords: {', '.join(list(missing_keywords)[:5])}")
+        
+        return {
+            'keyword_match': len(matching_keywords),
+            'missing_keywords': list(missing_keywords),
+            'suggestions': suggestions
+        }
+
+def get_ats_scorer() -> ATSScorer:
+    """Get the global ATS scorer instance."""
+    global _ats_scorer
+    if _ats_scorer is None:
+        _ats_scorer = ATSScorer()
+    return _ats_scorer
+
 def calculate_ats_score(resume_text: str, job_description: str) -> Dict[str, Any]:
     """Calculate ATS score and provide detailed analysis."""
     try:
-        # Initialize components
-        skills_score = calculate_skills_match(resume_text, job_description)
-        keywords_score = calculate_keywords_match(resume_text, job_description)
-        format_score = calculate_format_score(resume_text)
-        experience_score = calculate_experience_match(resume_text, job_description)
+        # Get the global ATS scorer instance
+        scorer = get_ats_scorer()
         
-        # Calculate overall score with adjusted weights
-        overall_score = (
-            0.35 * skills_score +  # Increased weight for skills
-            0.25 * keywords_score +  # Increased weight for keywords
-            0.20 * format_score +  # Format is important
-            0.20 * experience_score  # Experience matching
-        )
+        # Calculate scores
+        result = scorer.calculate_ats_score(resume_text, job_description)
         
-        # Get detailed analysis
-        strengths = identify_strengths(resume_text, job_description)
-        weaknesses = identify_weaknesses(resume_text, job_description)
-        improvements = suggest_improvements(resume_text, job_description)
+        # Add additional analysis
+        result.update({
+            'strengths': identify_strengths(resume_text, job_description),
+            'weaknesses': identify_weaknesses(resume_text, job_description),
+            'improvements': suggest_improvements(resume_text, job_description)
+        })
         
-        return {
-            'overall_score': round(overall_score * 100, 2),
-            'components': {
-                'skills_match': round(skills_score * 100, 2),
-                'keywords_match': round(keywords_score * 100, 2),
-                'format_score': round(format_score * 100, 2),
-                'experience_match': round(experience_score * 100, 2)
-            },
-            'strengths': strengths,
-            'weaknesses': weaknesses,
-            'improvements': improvements
-        }
+        return result
         
     except Exception as e:
         logger.error(f"Error calculating ATS score: {str(e)}")
         return {
-            'overall_score': 0,
-            'components': {
-                'skills_match': 0,
-                'keywords_match': 0,
-                'format_score': 0,
-                'experience_match': 0
-            },
+            'ats_score': 0,
+            'format_analysis': {'score': 0, 'issues': [], 'suggestions': []},
+            'content_analysis': {'keyword_match': 0, 'missing_keywords': [], 'suggestions': []},
             'strengths': [],
             'weaknesses': [],
             'improvements': []

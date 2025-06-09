@@ -1,25 +1,69 @@
 import axios from 'axios'
 
+const API_BASE_URL = 'http://localhost:5000/api'
+
 const API = axios.create({ 
-  baseURL: 'http://localhost:5000',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json'
   }
 })
 
-export const analyzeResume = (resumeFile, jobDescription) => {
-  const form = new FormData()
-  form.append('resume', resumeFile)
-  form.append('job_description', jobDescription)
-  return API.post('/api/analyze', form, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
+export const analyzeResume = async (resumeFile, jobDescription) => {
+  try {
+    const formData = new FormData()
+    formData.append('resume', resumeFile)
+    formData.append('job_description', jobDescription)
+
+    console.log('Sending request to analyze resume...')
+    const response = await API.post('/analyze', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+
+    console.log('Received response:', response.data)
+    
+    // Ensure we have a valid response structure
+    const analysis = {
+      ats_score: response.data.ats_score || 0,
+      job_match_score: response.data.job_match_score || 0,
+      strengths: response.data.strengths || [],
+      weaknesses: response.data.weaknesses || [],
+      improvements: response.data.improvements || [],
+      format_analysis: response.data.format_analysis || {
+        score: 0,
+        issues: [],
+        suggestions: []
+      },
+      skills_analysis: response.data.skills_analysis || {
+        matching_skills: [],
+        missing_skills: [],
+        skill_gaps: []
+      },
+      role_prediction: response.data.role_prediction || {
+        category: 'Unknown',
+        confidence: 0
+      }
     }
-  })
+
+    return { data: analysis }
+  } catch (error) {
+    console.error('Error analyzing resume:', error)
+    throw error
+  }
 }
 
-export const generateReport = (analysisData) => {
-  return API.post('/api/generate-report', analysisData)
+export const generateReport = async (analysisData) => {
+  try {
+    const response = await API.post('/generate-report', analysisData, {
+      responseType: 'blob'
+    })
+    return response
+  } catch (error) {
+    console.error('Error generating report:', error)
+    throw error
+  }
 }
 
 export const uploadResume = file => {
