@@ -102,8 +102,7 @@ class ResumeParser:
 
     def _extract_skills(self, text: str) -> list:
         """Extract skills from resume text."""
-        # This is a basic implementation. You might want to use a more sophisticated
-        # approach with a predefined skills database or ML model
+       
         skills_section = text.lower()
         common_skills = [
             'python', 'java', 'javascript', 'c++', 'c#', 'ruby', 'php',
@@ -123,11 +122,10 @@ class ResumeParser:
 
     def _extract_education(self, text: str) -> list:
         """Extract education information from resume text."""
-        # Basic implementation - you might want to use a more sophisticated approach
+        
         education = []
         education_section = text.lower()
         
-        # Look for common education keywords
         if 'education' in education_section:
             edu_text = education_section.split('education')[1].split('\n\n')[0]
             education.append(edu_text.strip())
@@ -136,11 +134,10 @@ class ResumeParser:
 
     def _extract_experience(self, text: str) -> list:
         """Extract work experience from resume text."""
-        # Basic implementation - you might want to use a more sophisticated approach
+        
         experience = []
         experience_section = text.lower()
         
-        # Look for common experience keywords
         if 'experience' in experience_section:
             exp_text = experience_section.split('experience')[1].split('\n\n')[0]
             experience.append(exp_text.strip())

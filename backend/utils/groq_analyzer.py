@@ -34,7 +34,6 @@ class GroqAnalyzer:
             "mistral-7b-instruct",
             "gemma-7b-it"
         ]
-        # In-memory cache for consistent responses
         self._analysis_cache = {}
         # Initialize resume parser
         self.resume_parser = ResumeParser()
@@ -48,11 +47,10 @@ class GroqAnalyzer:
     def _is_valid_analysis(self, analysis: Dict[str, Any]) -> bool:
         """Check if the analysis has valid scores and non-empty content."""
         try:
-            # Check if analysis is None or empty
+            
             if not analysis:
                 return False
 
-            # Check if scores are valid numbers greater than 0
             ats_score = analysis.get('ats_score', 0)
             job_match_score = analysis.get('job_match_score', 0)
             
