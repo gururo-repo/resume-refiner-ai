@@ -85,6 +85,8 @@ const AnalyzerPage = () => {
     </div>
   );
 
+  const isFallbackMode = results?.analysis_source === 'fallback';
+
   return (
     <div className="min-h-screen bg-black text-white p-4">
       <div className="max-w-6xl mx-auto">
@@ -181,6 +183,16 @@ const AnalyzerPage = () => {
         {/* Results Section */}
         {results && (
           <div className="space-y-6">
+            {/* Fallback Mode Notice */}
+            {isFallbackMode && (
+              <div className="mb-6 p-4 bg-yellow-500/20 border border-yellow-500 rounded-lg flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-400" />
+                <span className="text-yellow-300">
+                  Advanced analysis is currently unavailable. Showing basic scores only.
+                </span>
+              </div>
+            )}
+
             {/* Scores Overview */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
               <ScoreCard
@@ -200,80 +212,84 @@ const AnalyzerPage = () => {
               />
             </div>
 
-            {/* Main Analysis Sections */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <AnalysisSection
-                title="Strengths"
-                items={results.strengths}
-                icon={CheckCircle}
-                color="text-green-400"
-              />
-              <AnalysisSection
-                title="Areas for Improvement"
-                items={results.weaknesses}
-                icon={AlertCircle}
-                color="text-red-400"
-              />
-            </div>
+            {/* Main Analysis Sections - Only show if not in fallback mode */}
+            {!isFallbackMode && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <AnalysisSection
+                    title="Strengths"
+                    items={results.strengths}
+                    icon={CheckCircle}
+                    color="text-green-400"
+                  />
+                  <AnalysisSection
+                    title="Areas for Improvement"
+                    items={results.weaknesses}
+                    icon={AlertCircle}
+                    color="text-red-400"
+                  />
+                </div>
 
-            {/* Skills Analysis */}
-            <div className="bg-white/10 rounded-lg p-6">
-              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                <Target className="h-6 w-6 text-cyan-400" />
-                Skills Analysis
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-2 text-green-400">Matching Skills</h3>
-                  <ul className="space-y-2">
-                    {results.skills_analysis?.matching_skills?.map((skill, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-400" />
-                        <span>{skill}</span>
+                {/* Skills Analysis */}
+                <div className="bg-white/10 rounded-lg p-6">
+                  <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                    <Target className="h-6 w-6 text-cyan-400" />
+                    Skills Analysis
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2 text-green-400">Matching Skills</h3>
+                      <ul className="space-y-2">
+                        {results.skills_analysis?.matching_skills?.map((skill, index) => (
+                          <li key={index} className="flex items-center gap-2">
+                            <CheckCircle className="h-5 w-5 text-green-400" />
+                            <span>{skill}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2 text-red-400">Missing Skills</h3>
+                      <ul className="space-y-2">
+                        {results.skills_analysis?.missing_skills?.map((skill, index) => (
+                          <li key={index} className="flex items-center gap-2">
+                            <AlertCircle className="h-5 w-5 text-red-400" />
+                            <span>{skill}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                <div className="bg-white/10 rounded-lg p-6">
+                  <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                    <TrendingUp className="h-6 w-6 text-blue-400" />
+                    Recommendations
+                  </h2>
+                  <ul className="space-y-3">
+                    {results.improvements?.map((improvement, index) => (
+                      <li key={index} className="flex items-start gap-2">
+                        <TrendingUp className="h-5 w-5 mt-1 text-blue-400" />
+                        <span>{improvement}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
-                <div>
-                  <h3 className="text-lg font-semibold mb-2 text-red-400">Missing Skills</h3>
-                  <ul className="space-y-2">
-                    {results.skills_analysis?.missing_skills?.map((skill, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <AlertCircle className="h-5 w-5 text-red-400" />
-                        <span>{skill}</span>
-                      </li>
-                    ))}
-                  </ul>
+
+                {/* Download Report Button */}
+                <div className="text-center">
+                  <button
+                    onClick={handleDownloadReport}
+                    className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg text-white font-semibold hover:from-purple-600 hover:to-pink-600 transition-all flex items-center gap-2 mx-auto"
+                  >
+                    <Download className="h-5 w-5" />
+                    Download Full Report
+                  </button>
                 </div>
-              </div>
-            </div>
-
-            {/* Recommendations */}
-            <div className="bg-white/10 rounded-lg p-6">
-              <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                <TrendingUp className="h-6 w-6 text-blue-400" />
-                Recommendations
-              </h2>
-              <ul className="space-y-3">
-                {results.improvements?.map((improvement, index) => (
-                  <li key={index} className="flex items-start gap-2">
-                    <TrendingUp className="h-5 w-5 mt-1 text-blue-400" />
-                    <span>{improvement}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Download Report Button */}
-            <div className="text-center">
-              <button
-                onClick={handleDownloadReport}
-                className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg text-white font-semibold hover:from-purple-600 hover:to-pink-600 transition-all flex items-center gap-2 mx-auto"
-              >
-                <Download className="h-5 w-5" />
-                Download Full Report
-              </button>
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
