@@ -200,3 +200,73 @@ test-results.xml
 *.tar.gz
 *.rar
 *.7z
+
+# Additional Cache Files
+.cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# IDE specific
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.settings/
+*.code-workspace
+
+# Model files and large data
+*.pkl
+*.h5
+*.model
+*.bin
+*.vec
+*.npy
+*.npz
+
+# Temporary and system files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.bak
+
+# Application specific
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/cache/*
+!backend/cache/.gitkeep
+backend/logs/*
+!backend/logs/.gitkeep
+backend/models/*
+!backend/models/.gitkeep
+
+# Environment and dependencies
+.env*
+!.env.example
+venv/
+env/
+.venv/
+.env/
+node_modules/
+package-lock.json
+yarn.lock
+poetry.lock
+
+# Build and distribution
+dist/
+build/
+*.egg-info/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
