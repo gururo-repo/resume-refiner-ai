@@ -1,7 +1,7 @@
 import json
 import numpy as np
 import logging
-from .genai_suggester import ResumeImprover
+# from .genai_suggester import ResumeImprover
 from .model_loader import get_models, get_match_model, get_feature_scaler, get_model_features, get_sentence_transformer, get_model_loader
 from .skill_matcher import extract_skills, SKILLS_DB
 from sklearn.metrics.pairwise import cosine_similarity

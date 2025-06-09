@@ -2,10 +2,10 @@ import os
 import json
 import logging
 import requests
-import hashlib
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
-from pathlib import Path
+from .ml_fallback import get_ml_fallback
+from .resume_parser import ResumeParser
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,39 +34,75 @@ class GroqAnalyzer:
             "mistral-7b-instruct",
             "gemma-7b-it"
         ]
-        
-        # Initialize cache directory
-        self.cache_dir = Path("cache/groq")
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        # In-memory cache for consistent responses
+        self._analysis_cache = {}
+        # Initialize resume parser
+        self.resume_parser = ResumeParser()
         logger.info("Successfully initialized Groq analyzer")
 
     def _get_cache_key(self, resume_text: str, job_description: str = None) -> str:
         """Generate a cache key based on resume and job description content."""
         content = f"{resume_text}{job_description if job_description else ''}"
-        return hashlib.md5(content.encode()).hexdigest()
+        return content
 
-    def _get_cached_analysis(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Retrieve cached analysis if it exists."""
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r') as f:
-                    cached_data = json.load(f)
-                logger.info("Retrieved analysis from cache")
-                return cached_data
-            except Exception as e:
-                logger.warning(f"Error reading cache: {str(e)}")
-        return None
-
-    def _save_to_cache(self, cache_key: str, analysis: Dict[str, Any]):
-        """Save analysis results to cache."""
+    def _is_valid_analysis(self, analysis: Dict[str, Any]) -> bool:
+        """Check if the analysis has valid scores and non-empty content."""
         try:
-            cache_file = self.cache_dir / f"{cache_key}.json"
-            with open(cache_file, 'w') as f:
-                json.dump(analysis, f)
-            logger.info("Saved analysis to cache")
+            # Check if analysis is None or empty
+            if not analysis:
+                return False
+
+            # Check if scores are valid numbers greater than 0
+            ats_score = analysis.get('ats_score', 0)
+            job_match_score = analysis.get('job_match_score', 0)
+            
+            if not isinstance(ats_score, (int, float)) or ats_score <= 0:
+                logger.warning(f"Invalid ATS score: {ats_score}")
+                return False
+            if not isinstance(job_match_score, (int, float)) or job_match_score <= 0:
+                logger.warning(f"Invalid job match score: {job_match_score}")
+                return False
+
+            # Check if required fields have non-empty content
+            required_fields = {
+                'strengths': list,
+                'weaknesses': list,
+                'improvement_tips': list,
+                'skills_analysis': dict,
+                'format_analysis': dict
+            }
+
+            for field, field_type in required_fields.items():
+                if field not in analysis:
+                    logger.warning(f"Missing required field: {field}")
+                    return False
+                if not isinstance(analysis[field], field_type):
+                    logger.warning(f"Invalid type for field {field}: {type(analysis[field])}")
+                    return False
+                if field_type == list and not analysis[field]:
+                    logger.warning(f"Empty list for field: {field}")
+                    return False
+                if field_type == dict and not analysis[field]:
+                    logger.warning(f"Empty dict for field: {field}")
+                    return False
+
+            # Check skills analysis content
+            skills_analysis = analysis.get('skills_analysis', {})
+            if not skills_analysis.get('matching_skills') and not skills_analysis.get('missing_skills'):
+                logger.warning("Empty skills analysis")
+                return False
+
+            # Check format analysis content
+            format_analysis = analysis.get('format_analysis', {})
+            format_score = format_analysis.get('score', 0)
+            if not isinstance(format_score, (int, float)) or format_score <= 0:
+                logger.warning(f"Invalid format score: {format_score}")
+                return False
+
+            return True
         except Exception as e:
-            logger.warning(f"Error saving to cache: {str(e)}")
+            logger.error(f"Error validating analysis: {str(e)}")
+            return False
 
     def analyze_resume(self, resume_text: str, job_description: str = None) -> Dict[str, Any]:
         """
@@ -81,18 +117,17 @@ class GroqAnalyzer:
         """
         if not self.enabled:
             logger.warning("Groq analysis is disabled due to missing API key")
-            return self._get_fallback_analysis()
+            return self._get_fallback_analysis(resume_text, job_description)
 
         if not resume_text:
             logger.error("Empty resume text provided")
-            return self._get_fallback_analysis()
+            return self._get_fallback_analysis(resume_text, job_description)
 
-        # Generate cache key
+        # Check in-memory cache first
         cache_key = self._get_cache_key(resume_text, job_description)
-        
-        # Check cache first
-        cached_analysis = self._get_cached_analysis(cache_key)
-        if cached_analysis:
+        cached_analysis = self._analysis_cache.get(cache_key)
+        if cached_analysis and self._is_valid_analysis(cached_analysis):
+            logger.info("Retrieved valid analysis from in-memory cache")
             return cached_analysis
 
         logger.info(f"Starting Groq analysis with resume length: {len(resume_text)}")
@@ -104,23 +139,20 @@ class GroqAnalyzer:
             try:
                 logger.info(f"Attempting analysis with model: {model}")
                 analysis = self._try_model_analysis(model, resume_text, job_description)
-                if analysis:
+                if analysis and self._is_valid_analysis(analysis):
                     logger.info(f"Successfully completed Groq resume analysis using {model}")
                     logger.debug(f"Analysis result: {json.dumps(analysis, indent=2)}")
-                    # Save successful analysis to cache
-                    self._save_to_cache(cache_key, analysis)
+                    # Store valid analysis in cache
+                    self._analysis_cache[cache_key] = analysis
                     return analysis
                 else:
-                    logger.warning(f"Model {model} returned empty analysis")
+                    logger.warning(f"Model {model} returned invalid or empty analysis")
             except Exception as e:
                 logger.warning(f"Failed to analyze with model {model}: {str(e)}")
                 continue
 
-        logger.error("All Groq models failed, falling back to basic analysis")
-        fallback_analysis = self._get_fallback_analysis()
-        # Cache the fallback analysis as well
-        self._save_to_cache(cache_key, fallback_analysis)
-        return fallback_analysis
+        logger.error("All Groq models failed or returned empty analysis, falling back to trained models")
+        return self._get_fallback_analysis(resume_text, job_description)
 
     def _try_model_analysis(self, model: str, resume_text: str, job_description: str = None) -> Optional[Dict[str, Any]]:
         """Try analysis with a specific model."""
@@ -265,16 +297,50 @@ Focus on:
             logger.error(f"Unexpected error parsing response: {str(e)}")
             return None
 
-    def _get_fallback_analysis(self) -> Dict[str, Any]:
-        """Return minimal fallback analysis with only scores."""
-        return {
-            "ats_score": 0,
-            "job_match_score": 0,
-            "format_analysis": {
-                "score": 0
-            },
-            "analysis_source": "fallback"
-        }
+    def _get_fallback_analysis(self, resume_text: str, job_description: str = None) -> Dict[str, Any]:
+        """Get analysis using trained models when Groq API fails."""
+        try:
+            # Parse resume first
+            resume_data = self.resume_parser.parse(resume_text)
+            
+            # Get ML-based analysis
+            ml_analysis = get_ml_fallback(resume_data, job_description)
+            
+            # Format the analysis to match the expected structure
+            analysis = {
+                "ats_score": ml_analysis.get('ats_score', 0),
+                "job_match_score": ml_analysis.get('job_match_score', 0),
+                "strengths": ml_analysis.get('strengths', []),
+                "weaknesses": ml_analysis.get('weaknesses', []),
+                "improvement_tips": ml_analysis.get('tips', []),
+                "skills_analysis": {
+                    "matching_skills": ml_analysis.get('skills_analysis', {}).get('matching_skills', []),
+                    "missing_skills": ml_analysis.get('skills_analysis', {}).get('missing_skills', []),
+                    "skill_gaps": ml_analysis.get('skills_analysis', {}).get('skill_gaps', [])
+                },
+                "format_analysis": {
+                    "score": ml_analysis.get('format_analysis', {}).get('score', 0),
+                    "issues": ml_analysis.get('format_analysis', {}).get('issues', []),
+                    "suggestions": ml_analysis.get('format_analysis', {}).get('suggestions', [])
+                },
+                "role_match": {
+                    "primary_role": ml_analysis.get('role_match', {}).get('primary_role', 'Unknown'),
+                    "match_confidence": ml_analysis.get('role_match', {}).get('match_confidence', 0)
+                },
+                "analysis_source": "trained_models"
+            }
+            
+            logger.info("Successfully completed fallback analysis using trained models")
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Error in fallback analysis: {str(e)}")
+            return {
+                "ats_score": 0,
+                "job_match_score": 0,
+                "format_analysis": {"score": 0},
+                "analysis_source": "fallback"
+            }
 
 # Initialize global analyzer instance
 groq_analyzer = GroqAnalyzer()

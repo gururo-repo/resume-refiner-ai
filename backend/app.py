@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
@@ -7,17 +7,9 @@ from datetime import datetime
 import logging
 import traceback
 from utils.resume_parser import ResumeParser
-from utils.job_analyzer import analyze_job_description
 from utils.model_loader import get_model_loader
-from utils.skill_matcher import SkillMatcher
 from utils.match_score import MatchScoreCalculator
 from utils.role_predictor import RolePredictor
-from utils.ats_scorer import calculate_ats_score
-from utils.job_matcher import calculate_job_match
-from utils.role_recommender import get_role_recommendations
-from utils.skill_analyzer import analyze_missing_skills
-from utils.groq_analyzer import get_groq_analysis
-from utils.ml_fallback import get_ml_fallback
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -152,35 +144,6 @@ def analyze_resume():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
-
-@app.route('/api/generate-report', methods=['POST'])
-def generate_report_endpoint():
-    try:
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Validate required fields
-        required_fields = ['match_score', 'ats_score', 'strengths', 'weaknesses', 'recommendations']
-        missing_fields = [field for field in required_fields if field not in data]
-        if missing_fields:
-            return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
-        
-        # Generate PDF report
-        pdf_path = generate_report(data)
-        
-        # Send the PDF file
-        return send_file(
-            pdf_path,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name='resume_analysis_report.pdf'
-        )
-    
-    except Exception as e:
-        logger.error(f"Error in generate_report_endpoint: {str(e)}")
-        logger.error(traceback.format_exc())
-        return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)  # Enable debug mode for better error messages 

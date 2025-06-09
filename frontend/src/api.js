@@ -54,17 +54,7 @@ export const analyzeResume = async (resumeFile, jobDescription) => {
   }
 }
 
-export const generateReport = async (analysisData) => {
-  try {
-    const response = await API.post('/generate-report', analysisData, {
-      responseType: 'blob'
-    })
-    return response
-  } catch (error) {
-    console.error('Error generating report:', error)
-    throw error
-  }
-}
+export const analyze = (resume_text, jd_text) => API.post('/analyze', { resume_text, jd_text })
 
 export const uploadResume = file => {
   const form = new FormData()
@@ -73,7 +63,5 @@ export const uploadResume = file => {
 }
 
 export const uploadJD = jd_text => API.post('/upload-jd', { jd_text })
-
-export const analyze = (resume_text, jd_text) => API.post('/analyze', { resume_text, jd_text })
 
 export const genaiSuggest = (resume_text, jd_text) => API.post('/genai-suggest', { resume_text, jd_text }) 

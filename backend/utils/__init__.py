@@ -9,7 +9,7 @@ from .model_loader import (
 from .match_score import get_match_score
 from .skill_matcher import extract_and_match_skills
 from .role_predictor import predict_roles
-from .genai_suggester import get_resume_improver
+# from .genai_suggester import get_resume_improver
 
 __all__ = [
     'get_models',

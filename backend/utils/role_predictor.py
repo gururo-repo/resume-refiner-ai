@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 import logging
-from .genai_suggester import ResumeImprover
+# from .genai_suggester import ResumeImprover
 from .model_loader import get_model_loader
 from .skill_matcher import extract_skills, SKILLS_DB
 from sentence_transformers import SentenceTransformer
