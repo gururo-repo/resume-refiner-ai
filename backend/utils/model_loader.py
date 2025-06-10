@@ -82,11 +82,18 @@ class ModelLoader:
             # Force CPU usage to reduce memory consumption
             os.environ['CUDA_VISIBLE_DEVICES'] = ''
             
+            # Set model configuration to use only safetensors
+            model_kwargs = {
+                'device': 'cpu',
+                'cache_folder': CACHE_DIR,
+                'use_safetensors': True,
+                'local_files_only': True  # Try to use cached files first
+            }
+            
             # Load model with memory optimization
             model = SentenceTransformer(
                 'all-MiniLM-L6-v2',
-                device='cpu',
-                cache_folder=CACHE_DIR
+                **model_kwargs
             )
             
             # Test the model
@@ -97,7 +104,19 @@ class ModelLoader:
             return model
         except Exception as e:
             logger.error(f"Error in sentence transformer initialization: {str(e)}")
-            return None
+            # If local files fail, try downloading
+            try:
+                model = SentenceTransformer(
+                    'all-MiniLM-L6-v2',
+                    device='cpu',
+                    cache_folder=CACHE_DIR,
+                    use_safetensors=True
+                )
+                logger.info("Successfully downloaded and loaded sentence transformer")
+                return model
+            except Exception as e2:
+                logger.error(f"Error downloading sentence transformer: {str(e2)}")
+                return None
 
     def get_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
         """Get embeddings for a list of texts with memory optimization."""
