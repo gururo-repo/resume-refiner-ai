@@ -26,7 +26,6 @@ pdfplumber==0.10.3
 nltk==3.8.1
 spacy==3.7.2
 python-magic==0.4.27
-python-magic-bin==0.4.14
 docx2txt==0.8
 beautifulsoup4==4.12.3
 lxml==4.9.3

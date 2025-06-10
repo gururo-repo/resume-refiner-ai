@@ -117,7 +117,7 @@ def analyze_resume():
                         'confidence': groq_analysis.get('role_match', {}).get('match_confidence', 0) / 100.0
                     },
                     'analysis_source': 'groq',
-                    'job_description_analysis': analysis  # Include job description analysis
+                    'job_description_analysis': analysis
                 }
             else:
                 logger.warning("Groq analysis failed, falling back to ML models")
@@ -139,7 +139,7 @@ def analyze_resume():
                     'skills_analysis': match_components.get('skills_analysis', {}),
                     'role_prediction': role_prediction,
                     'analysis_source': 'local_models',
-                    'job_description_analysis': analysis  # Include job description analysis
+                    'job_description_analysis': analysis
                 }
             
             # Clean up
@@ -162,7 +162,15 @@ def analyze_resume():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'environment': os.getenv('FLASK_ENV', 'production')
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)  # Enable debug mode for better error messages 
+    # Get port from environment variable or default to 5000
+    port = int(os.getenv('PORT', 5000))
+    # Only enable debug mode in development
+    debug = os.getenv('FLASK_ENV') == 'development'
+    app.run(host='0.0.0.0', port=port, debug=debug) 

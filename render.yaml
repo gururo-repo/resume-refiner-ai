@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: resume-refiner-backend
+    env: python
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+    healthCheckPath: /api/health
+    autoDeploy: true 
