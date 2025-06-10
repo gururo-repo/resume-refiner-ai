@@ -50,7 +50,7 @@ _genai_model = None
 _model_loader = None
 
 class ModelLoader:
-    """Handles loading and management of various models with fallback mechanisms."""
+    """Handles loading and management of models with memory optimization."""
     
     def __init__(self):
         """Initialize the model loader."""
@@ -60,92 +60,68 @@ class ModelLoader:
         self._initialize_models()
 
     def _initialize_models(self):
-        """Initialize all required models."""
+        """Initialize only essential models."""
         try:
-            # Initialize sentence transformer
+            # Initialize sentence transformer with memory optimization
             self.sentence_transformer = self._load_sentence_transformer()
             self.initialized = True
-            logger.info("Successfully initialized all models")
+            logger.info("Successfully initialized models")
         except Exception as e:
             logger.error(f"Error initializing models: {str(e)}")
             self.initialized = False
 
     def _load_sentence_transformer(self) -> Optional[SentenceTransformer]:
-        """Load the sentence transformer model with retry logic."""
+        """Load the sentence transformer model with memory optimization."""
         try:
-            # Set environment variables
+            # Set environment variables for memory optimization
             os.environ['TOKENIZERS_PARALLELISM'] = 'false'
             os.environ['SENTENCE_TRANSFORMERS_HOME'] = CACHE_DIR
             os.environ['TRANSFORMERS_CACHE'] = CACHE_DIR
             os.environ['HF_HOME'] = CACHE_DIR
-
-            # Try loading with increased timeout and retries
-            max_retries = 5
-            retry_delay = 10
-            timeout = 30
-
-            for attempt in range(max_retries):
-                try:
-                    logger.info(f"Loading sentence transformer (attempt {attempt + 1}/{max_retries})...")
-                    
-                    # Check for cached model
-                    model_path = os.path.join(CACHE_DIR, 'all-MiniLM-L6-v2')
-                    if os.path.exists(model_path):
-                        logger.info("Using cached model")
-                        model = SentenceTransformer(
-                            model_path,
-                            device='cpu',
-                            cache_folder=CACHE_DIR
-                        )
-                    else:
-                        logger.info("Downloading model from HuggingFace")
-                        model = SentenceTransformer(
-                            'all-MiniLM-L6-v2',
-                            device='cpu',
-                            cache_folder=CACHE_DIR
-                        )
-                    
-                    # Test the model
-                    test_text = "Testing model initialization"
-                    model.encode(test_text)
-                    
-                    logger.info("Successfully loaded sentence transformer")
-                    return model
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {retry_delay} seconds...")
-                        time.sleep(retry_delay)
-                        timeout *= 2
-                    else:
-                        logger.error(f"All attempts to load model failed: {str(e)}")
-                        return None
+            
+            # Force CPU usage to reduce memory consumption
+            os.environ['CUDA_VISIBLE_DEVICES'] = ''
+            
+            # Load model with memory optimization
+            model = SentenceTransformer(
+                'all-MiniLM-L6-v2',
+                device='cpu',
+                cache_folder=CACHE_DIR
+            )
+            
+            # Test the model
+            test_text = "Testing model initialization"
+            model.encode(test_text)
+            
+            logger.info("Successfully loaded sentence transformer")
+            return model
         except Exception as e:
             logger.error(f"Error in sentence transformer initialization: {str(e)}")
             return None
 
     def get_embeddings(self, texts: List[str]) -> Optional[np.ndarray]:
-        """
-        Get embeddings for a list of texts.
-        
-        Args:
-            texts: List of texts to get embeddings for
-            
-        Returns:
-            numpy array of embeddings or None if model is not available
-        """
+        """Get embeddings for a list of texts with memory optimization."""
         if not self.initialized or self.sentence_transformer is None:
             logger.warning("Sentence transformer not available, using basic embeddings")
             return self._get_basic_embeddings(texts)
 
         try:
-            return self.sentence_transformer.encode(texts)
+            # Process in smaller batches to reduce memory usage
+            batch_size = 8
+            all_embeddings = []
+            
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                batch_embeddings = self.sentence_transformer.encode(batch)
+                all_embeddings.append(batch_embeddings)
+                
+            return np.vstack(all_embeddings)
         except Exception as e:
             logger.error(f"Error getting embeddings: {str(e)}")
             return self._get_basic_embeddings(texts)
 
     def _get_basic_embeddings(self, texts: List[str]) -> np.ndarray:
         """Generate basic embeddings when the model is not available."""
-        # Simple TF-IDF like embedding
         all_words = set()
         for text in texts:
             all_words.update(text.lower().split())
@@ -166,16 +142,7 @@ class ModelLoader:
         return embeddings
 
     def try_groq_analysis(self, resume_text: str, job_description: str) -> Optional[Dict[str, Any]]:
-        """
-        Try to get analysis from Groq, with fallback to local models if it fails.
-        
-        Args:
-            resume_text: The resume text to analyze
-            job_description: The job description text
-            
-        Returns:
-            Analysis results from Groq if successful, None if failed
-        """
+        """Try to get analysis from Groq, with fallback to local models if it fails."""
         if not self.use_groq:
             logger.info("Groq analysis disabled, using local models")
             return None
@@ -198,7 +165,7 @@ class ModelLoader:
 _model_loader = None
 
 def get_model_loader() -> ModelLoader:
-    """Get the global model loader instance."""
+    """Get or create the global model loader instance."""
     global _model_loader
     if _model_loader is None:
         _model_loader = ModelLoader()
