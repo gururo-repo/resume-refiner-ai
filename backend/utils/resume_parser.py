@@ -161,4 +161,38 @@ class ResumeParser:
         if phones:
             contact_info['phone'] = phones[0]
         
-        return contact_info 
+        return contact_info
+
+    def validate_resume(self, text: str) -> tuple[bool, str]:
+        """
+        Validate if the input text is a valid resume with required sections.
+        
+        Args:
+            text: The resume text to validate
+            
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        # Check if text is empty or too short
+        if not text or len(text.strip()) < 100:
+            return False, " Please upload a valid resume document."
+        
+        # Check for required sections
+        required_sections = ['education', 'experience', 'skills']
+        found_sections = []
+        
+        for section in required_sections:
+            if section.lower() in text.lower():
+                found_sections.append(section)
+        
+        # If less than 2 required sections are found, consider it invalid
+        if len(found_sections) < 2:
+            return False, " Please upload a valid resume document."
+        
+        # Check for minimum content in each found section
+        for section in found_sections:
+            section_content = text.lower().split(section.lower())[1].split('\n\n')[0]
+            if len(section_content.strip()) < 20:  # Arbitrary minimum length for section content
+                return False, " Please upload a valid resume document."
+        
+        return True, "Valid resume format detected." 

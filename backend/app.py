@@ -78,6 +78,13 @@ def analyze_resume():
             parser = ResumeParser()
             resume_data = parser.parse_resume(filepath)
             
+            # Validate resume format
+            is_valid, message = parser.validate_resume(resume_data.get('raw_text', ''))
+            if not is_valid:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return jsonify({'error': message}), 400
+            
             # Initialize model loader
             model_loader = get_model_loader()
             
