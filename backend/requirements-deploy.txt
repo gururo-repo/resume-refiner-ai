@@ -32,4 +32,4 @@ certifi==2024.2.2
 cryptography==41.0.7
 pyOpenSSL==24.0.0
 werkzeug==3.0.1
-typing-extensions==4.14.0
+typing-extensions==4.14.0 
