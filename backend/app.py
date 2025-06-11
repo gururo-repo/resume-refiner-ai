@@ -34,7 +34,18 @@ if missing_vars:
     logger.warning("Some features may be disabled")
 
 app = Flask(__name__)
-CORS(app)
+# Update CORS configuration
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "https://resume-refiner-ai.vercel.app/",
+            "http://localhost:5173",
+            "http://localhost:3000"
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
