@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: resume-refiner-backend
+    env: python
+    buildCommand: |
+      cd backend
+      python -m pip install --upgrade pip
+      pip install -r requirements-deploy.txt
+      python -m spacy download en_core_web_sm
+      python -m nltk.downloader punkt stopwords
+    startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --config gunicorn.conf.py
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: FLASK_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/health
+    autoDeploy: true 

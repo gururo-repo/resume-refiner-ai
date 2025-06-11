@@ -10,6 +10,7 @@ from utils.resume_parser import ResumeParser
 from utils.model_loader import get_model_loader
 from utils.match_score import MatchScoreCalculator
 from utils.role_predictor import RolePredictor
+from utils.job_description_validator import validate_job_description
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -73,10 +74,19 @@ def analyze_resume():
         if not allowed_file(file.filename):
             return jsonify({'error': 'Invalid file type'}), 400
         
-        # Get job description
+        # Get and validate job description
         job_description = request.form.get('job_description', '')
         if not job_description:
             return jsonify({'error': 'No job description provided'}), 400
+        
+        # Validate job description
+        is_valid, message, analysis = validate_job_description(job_description)
+        if not is_valid:
+            return jsonify({
+                'error': 'Invalid job description',
+                'message': message,
+                'analysis': analysis
+            }), 400
         
         # Save file
         filename = secure_filename(file.filename)
@@ -117,7 +127,8 @@ def analyze_resume():
                         'category': groq_analysis.get('role_match', {}).get('primary_role', 'Unknown'),
                         'confidence': groq_analysis.get('role_match', {}).get('match_confidence', 0) / 100.0
                     },
-                    'analysis_source': 'groq'
+                    'analysis_source': 'groq',
+                    'job_description_analysis': analysis
                 }
             else:
                 logger.warning("Groq analysis failed, falling back to ML models")
@@ -138,7 +149,8 @@ def analyze_resume():
                     'format_analysis': match_components.get('format_analysis', {}),
                     'skills_analysis': match_components.get('skills_analysis', {}),
                     'role_prediction': role_prediction,
-                    'analysis_source': 'local_models'
+                    'analysis_source': 'local_models',
+                    'job_description_analysis': analysis
                 }
             
             # Clean up
@@ -161,7 +173,15 @@ def analyze_resume():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'environment': os.getenv('FLASK_ENV', 'production')
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)  # Enable debug mode for better error messages 
+    # Get port from environment variable or default to 5000
+    port = int(os.getenv('PORT', 5000))
+    # Only enable debug mode in development
+    debug = os.getenv('FLASK_ENV') == 'development'
+    app.run(host='0.0.0.0', port=port, debug=debug) 
