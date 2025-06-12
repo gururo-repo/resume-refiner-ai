@@ -11,6 +11,7 @@ from utils.model_loader import get_model_loader
 from utils.match_score import MatchScoreCalculator
 from utils.role_predictor import RolePredictor
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv()
@@ -53,6 +54,39 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def validate_job_description(job_description):
+    """
+    Validates if the job description is meaningful and appropriate.
+    Returns (is_valid, message) tuple.
+    """
+    if not job_description or len(job_description.strip()) < 50:
+        return False, "Job description is too short. Please provide a detailed job description."
+    
+    # Check for minimum required sections
+    required_sections = ['responsibilities', 'requirements', 'qualifications']
+    found_sections = [section for section in required_sections 
+                     if re.search(rf'\b{section}\b', job_description.lower())]
+    
+    if len(found_sections) < 2:
+        return False, "Job description should include at least 2 of: responsibilities, requirements, or qualifications."
+    
+    # Check for minimum content length
+    if len(job_description.split()) < 100:
+        return False, "Job description should be more detailed. Please provide at least 100 words."
+    
+    # Check for inappropriate content
+    inappropriate_patterns = [
+        r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+        r'[<>]',
+        r'[^\w\s.,;:!?()\-@#$%&*+/=]'
+    ]
+    
+    for pattern in inappropriate_patterns:
+        if re.search(pattern, job_description):
+            return False, "Job description contains inappropriate content or special characters."
+    
+    return True, "Job description is valid."
+
 # Add a root route to handle the HEAD request
 @app.route('/')
 def root():
@@ -81,11 +115,12 @@ def analyze_resume():
             logger.error(f"Invalid file type: {file.filename}")
             return jsonify({'error': 'Invalid file type. Please upload PDF, DOC, or DOCX files only.'}), 400
         
-        # Get job description
+        # Get and validate job description
         job_description = request.form.get('job_description', '')
-        if not job_description:
-            logger.error("No job description provided")
-            return jsonify({'error': 'No job description provided'}), 400
+        is_valid, message = validate_job_description(job_description)
+        if not is_valid:
+            logger.error(f"Invalid job description: {message}")
+            return jsonify({'error': message}), 400
         
         logger.info(f"Processing file: {file.filename}")
         logger.info(f"Job description length: {len(job_description)}")
