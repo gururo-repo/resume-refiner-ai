@@ -35,7 +35,7 @@ if missing_vars:
 
 app = Flask(__name__)
 
-# Enhanced CORS Configuration
+# Enhanced CORS Configuration - FIXED
 CORS(app, 
      origins=['https://resume-refiner-ai.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
      allow_headers=['Content-Type', 'Authorization'],
@@ -58,20 +58,14 @@ def allowed_file(filename):
 def root():
     return jsonify({'message': 'Resume Refiner API is running', 'version': '1.0'})
 
-@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
+@app.route('/api/analyze', methods=['POST'])
 def analyze_resume():
-    # Handle preflight OPTIONS request
-    if request.method == 'OPTIONS':
-        response = jsonify({'status': 'ok'})
-        response.headers.add('Access-Control-Allow-Origin', 'https://resume-refiner-ai.vercel.app')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        response.headers.add('Access-Control-Allow-Methods', 'POST')
-        return response
     
     try:
         logger.info("Received analyze request")
         logger.info(f"Request files: {list(request.files.keys())}")
         logger.info(f"Request form: {list(request.form.keys())}")
+        logger.info(f"Request origin: {request.headers.get('Origin', 'No origin header')}")
         
         # Check if file is present
         if 'resume' not in request.files:
@@ -205,6 +199,13 @@ def internal_error(e):
 def not_found(e):
     return jsonify({'error': 'Endpoint not found'}), 404
 
+# Add after_request handler for additional CORS headers if needed
+@app.after_request
+def after_request(response):
+    # Log the response headers for debugging
+    logger.info(f"Response headers: {dict(response.headers)}")
+    return response
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)  
+    app.run(host='0.0.0.0', port=port, debug=False)
