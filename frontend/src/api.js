@@ -6,8 +6,20 @@ const API = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  withCredentials: true
 })
+
+// Add health check function
+export const checkHealth = async () => {
+  try {
+    const response = await API.get('/health')
+    return response.data
+  } catch (error) {
+    console.error('Health check failed:', error)
+    throw error
+  }
+}
 
 export const analyzeResume = async (resumeFile, jobDescription) => {
   try {
@@ -44,7 +56,8 @@ export const analyzeResume = async (resumeFile, jobDescription) => {
       role_prediction: response.data.role_prediction || {
         category: 'Unknown',
         confidence: 0
-      }
+      },
+      job_description_analysis: response.data.job_description_analysis || {}
     }
 
     return { data: analysis }
