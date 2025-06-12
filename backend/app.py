@@ -10,7 +10,6 @@ from utils.resume_parser import ResumeParser
 from utils.model_loader import get_model_loader
 from utils.match_score import MatchScoreCalculator
 from utils.role_predictor import RolePredictor
-from utils.job_description_validator import validate_job_description
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -35,20 +34,13 @@ if missing_vars:
     logger.warning("Some features may be disabled")
 
 app = Flask(__name__)
-# Update CORS configuration
-CORS(app, resources={
-    r"/api/*": {
-        "origins": [
-            "https://resume-refiner-ai.vercel.app",
-            "http://localhost:5173",
-            "http://localhost:3000"
-        ],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True,
-        "expose_headers": ["Content-Type", "Authorization"]
-    }
-})
+
+# Enhanced CORS Configuration
+CORS(app, 
+     origins=['https://resume-refiner-ai.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'OPTIONS'],
+     supports_credentials=True)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -56,54 +48,71 @@ ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/api/analyze', methods=['POST'])
+# Add a root route to handle the HEAD request
+@app.route('/')
+def root():
+    return jsonify({'message': 'Resume Refiner API is running', 'version': '1.0'})
+
+@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze_resume():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', 'https://resume-refiner-ai.vercel.app')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST')
+        return response
+    
     try:
+        logger.info("Received analyze request")
+        logger.info(f"Request files: {list(request.files.keys())}")
+        logger.info(f"Request form: {list(request.form.keys())}")
+        
         # Check if file is present
         if 'resume' not in request.files:
+            logger.error("No resume file in request")
             return jsonify({'error': 'No resume file provided'}), 400
         
         file = request.files['resume']
         if file.filename == '':
+            logger.error("No file selected")
             return jsonify({'error': 'No file selected'}), 400
         
         if not allowed_file(file.filename):
-            return jsonify({'error': 'Invalid file type'}), 400
+            logger.error(f"Invalid file type: {file.filename}")
+            return jsonify({'error': 'Invalid file type. Please upload PDF, DOC, or DOCX files only.'}), 400
         
-        # Get and validate job description
+        # Get job description
         job_description = request.form.get('job_description', '')
         if not job_description:
+            logger.error("No job description provided")
             return jsonify({'error': 'No job description provided'}), 400
         
-        # Validate job description
-        is_valid, message, analysis = validate_job_description(job_description)
-        if not is_valid:
-            return jsonify({
-                'error': 'Invalid job description',
-                'message': message,
-                'analysis': analysis
-            }), 400
+        logger.info(f"Processing file: {file.filename}")
+        logger.info(f"Job description length: {len(job_description)}")
         
         # Save file
         filename = secure_filename(file.filename)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{timestamp}_{filename}")
         file.save(filepath)
+        logger.info(f"File saved to: {filepath}")
         
         try:
             # Parse resume
             parser = ResumeParser()
             resume_data = parser.parse_resume(filepath)
+            logger.info("Resume parsed successfully")
             
             # Validate resume format
             is_valid, message = parser.validate_resume(resume_data.get('raw_text', ''))
             if not is_valid:
+                logger.error(f"Resume validation failed: {message}")
                 if os.path.exists(filepath):
                     os.remove(filepath)
                 return jsonify({'error': message}), 400
@@ -129,8 +138,7 @@ def analyze_resume():
                         'category': groq_analysis.get('role_match', {}).get('primary_role', 'Unknown'),
                         'confidence': groq_analysis.get('role_match', {}).get('match_confidence', 0) / 100.0
                     },
-                    'analysis_source': 'groq',
-                    'job_description_analysis': analysis
+                    'analysis_source': 'groq'
                 }
             else:
                 logger.warning("Groq analysis failed, falling back to ML models")
@@ -151,12 +159,13 @@ def analyze_resume():
                     'format_analysis': match_components.get('format_analysis', {}),
                     'skills_analysis': match_components.get('skills_analysis', {}),
                     'role_prediction': role_prediction,
-                    'analysis_source': 'local_models',
-                    'job_description_analysis': analysis
+                    'analysis_source': 'local_models'
                 }
             
             # Clean up
-            os.remove(filepath)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                logger.info("Temporary file cleaned up")
             
             logger.info("Successfully completed resume analysis")
             return jsonify(analysis_result)
@@ -166,24 +175,36 @@ def analyze_resume():
             logger.error(traceback.format_exc())
             if os.path.exists(filepath):
                 os.remove(filepath)
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': f'Analysis failed: {str(e)}'}), 500
             
     except Exception as e:
         logger.error(f"Error in analyze_resume endpoint: {str(e)}")
         logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({
-        'status': 'healthy',
+        'status': 'healthy', 
         'timestamp': datetime.now().isoformat(),
-        'environment': os.getenv('FLASK_ENV', 'production')
+        'version': '1.0',
+        'port': os.environ.get('PORT', 10000)
     })
 
+# Add error handlers
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify({'error': 'File too large. Maximum size is 16MB.'}), 413
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error(f"Internal server error: {str(e)}")
+    return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Endpoint not found'}), 404
+
 if __name__ == '__main__':
-    # Get port from environment variable or default to 5000
-    port = int(os.getenv('PORT', 5000))
-    # Only enable debug mode in development
-    debug = os.getenv('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug) 
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)  
