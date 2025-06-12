@@ -36,11 +36,16 @@ if missing_vars:
 
 app = Flask(__name__)
 
-# Enhanced CORS Configuration - FIXED
+# FIXED CORS Configuration - Added your actual Vercel domain
 CORS(app, 
-     origins=['https://resume-refiner-ai.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
-     allow_headers=['Content-Type', 'Authorization'],
-     methods=['GET', 'POST', 'OPTIONS'],
+     origins=[
+         'https://resume-refiner-ai-eight.vercel.app',  # Added your actual domain
+         'https://resume-refiner-ai.vercel.app', 
+         'http://localhost:3000', 
+         'http://localhost:5173'
+     ],
+     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
+     methods=['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
      supports_credentials=True)
 
 # Configuration
@@ -56,32 +61,34 @@ def allowed_file(filename):
 
 def validate_job_description(job_description):
     """
-    Validates if the job description is meaningful and appropriate.
+    FIXED: More lenient validation for job description.
     Returns (is_valid, message) tuple.
     """
     if not job_description:
         return False, "Job description is required"
     
-    if len(job_description.strip()) < 50:
-        return False, "Job description too short"
+    # FIXED: Reduced minimum length from 50 to 20 characters
+    if len(job_description.strip()) < 20:
+        return False, "Job description too short (minimum 20 characters)"
     
-    # Check for minimum required sections
-    required_sections = ['responsibilities', 'requirements', 'qualifications']
-    found_sections = [section for section in required_sections 
-                     if re.search(rf'\b{section}\b', job_description.lower())]
+    # FIXED: More lenient section checking - only need basic content
+    job_desc_lower = job_description.lower()
+    has_role_info = any(keyword in job_desc_lower for keyword in [
+        'position', 'role', 'job', 'responsibilities', 'duties', 'requirements', 
+        'qualifications', 'skills', 'experience', 'candidate', 'seeking'
+    ])
     
-    if len(found_sections) < 2:
-        return False, "Missing required sections"
+    if not has_role_info:
+        return False, "Job description should contain role-related information"
     
-    # Check for minimum content length
-    if len(job_description.split()) < 100:
-        return False, "Job description needs more details"
+    # FIXED: Reduced minimum word count from 100 to 10
+    if len(job_description.split()) < 10:
+        return False, "Job description needs more details (minimum 10 words)"
     
-    # Check for inappropriate content
+    # Check for inappropriate content (kept same)
     inappropriate_patterns = [
-        r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-        r'[<>]',
-        r'[^\w\s.,;:!?()\-@#$%&*+/=]'
+        r'[<>]',  # Removed URL pattern as it might be too restrictive
+        r'[^\w\s.,;:!?()\-@#$%&*+/=\n\r\t]'  # Added newlines and tabs as allowed
     ]
     
     for pattern in inappropriate_patterns:
@@ -90,13 +97,30 @@ def validate_job_description(job_description):
     
     return True, "Job description is valid"
 
-# Add a root route to handle the HEAD request
+# FIXED: Add preflight OPTIONS handler
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = jsonify({'message': 'OK'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "*")
+        response.headers.add('Access-Control-Allow-Methods', "*")
+        return response
+
+# Root route to handle the HEAD request
 @app.route('/')
 def root():
     return jsonify({'message': 'Resume Refiner API is running', 'version': '1.0'})
 
-@app.route('/api/analyze', methods=['POST'])
+@app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def analyze_resume():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = jsonify({'message': 'OK'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "*")
+        response.headers.add('Access-Control-Allow-Methods', "*")
+        return response
     
     try:
         logger.info("Received analyze request")
@@ -120,10 +144,12 @@ def analyze_resume():
         
         # Get and validate job description
         job_description = request.form.get('job_description', '')
+        logger.info(f"Received job description: '{job_description}' (length: {len(job_description)})")
+        
         is_valid, message = validate_job_description(job_description)
         if not is_valid:
             logger.error(f"Invalid job description: {message}")
-            return jsonify({'error': message}), 400
+            return jsonify({'error': f'Job description validation failed: {message}'}), 400
         
         logger.info(f"Processing file: {file.filename}")
         logger.info(f"Job description length: {len(job_description)}")
@@ -141,20 +167,20 @@ def analyze_resume():
             resume_data = parser.parse_resume(filepath)
             logger.info("Resume parsed successfully")
             
-            # Validate resume format
-            is_valid, message = parser.validate_resume(resume_data.get('raw_text', ''))
-            if not is_valid:
-                logger.error(f"Resume validation failed: {message}")
+            # FIXED: More lenient resume validation
+            raw_text = resume_data.get('raw_text', '')
+            if len(raw_text.strip()) < 50:  # Basic minimum content check
+                logger.error("Resume content too short")
                 if os.path.exists(filepath):
                     os.remove(filepath)
-                return jsonify({'error': message}), 400
+                return jsonify({'error': 'Resume content appears to be too short or corrupted'}), 400
             
             # Initialize model loader
             model_loader = get_model_loader()
             
             # Try Groq analysis first
             logger.info("Attempting to get analysis from Groq API...")
-            groq_analysis = model_loader.try_groq_analysis(resume_data.get('raw_text', ''), job_description)
+            groq_analysis = model_loader.try_groq_analysis(raw_text, job_description)
             
             if groq_analysis:
                 logger.info("Successfully got analysis from Groq API")
@@ -180,7 +206,7 @@ def analyze_resume():
                 match_components = match_calculator.analyze_match_components(resume_data, job_description)
                 
                 role_predictor = RolePredictor()
-                role_prediction = role_predictor.predict_role(resume_data.get('raw_text', ''), job_description)
+                role_prediction = role_predictor.predict_role(raw_text, job_description)
                 
                 analysis_result = {
                     'ats_score': match_components.get('ats_score', 0),
@@ -237,13 +263,31 @@ def internal_error(e):
 def not_found(e):
     return jsonify({'error': 'Endpoint not found'}), 404
 
-# Add after_request handler for additional CORS headers if needed
+# FIXED: Enhanced after_request handler for CORS
 @app.after_request
 def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        'https://resume-refiner-ai-eight.vercel.app',
+        'https://resume-refiner-ai.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:5173'
+    ]
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    else:
+        response.headers.add('Access-Control-Allow-Origin', '*')
+    
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    
     # Log the response headers for debugging
     logger.info(f"Response headers: {dict(response.headers)}")
     return response
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, timeout=120)  # Increased timeout to 120 seconds
+    logger.info(f"Starting server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
