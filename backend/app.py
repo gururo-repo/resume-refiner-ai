@@ -36,16 +36,11 @@ if missing_vars:
 
 app = Flask(__name__)
 
-# FIXED CORS Configuration - Added your actual Vercel domain
+# Simplified CORS Configuration
 CORS(app, 
-     origins=[
-         'https://resume-refiner-ai-eight.vercel.app',  # Added your actual domain
-         'https://resume-refiner-ai.vercel.app', 
-         'http://localhost:3000', 
-         'http://localhost:5173'
-     ],
-     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
-     methods=['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+     origins=["https://resume-refiner-ai-eight.vercel.app"],
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS"],
      supports_credentials=True)
 
 # Configuration
@@ -102,9 +97,10 @@ def validate_job_description(job_description):
 def handle_preflight():
     if request.method == "OPTIONS":
         response = jsonify({'message': 'OK'})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add('Access-Control-Allow-Headers', "*")
-        response.headers.add('Access-Control-Allow-Methods', "*")
+        response.headers.add("Access-Control-Allow-Origin", "https://resume-refiner-ai-eight.vercel.app")
+        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+        response.headers.add('Access-Control-Allow-Methods', "GET,POST,OPTIONS")
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
 
 # Root route to handle the HEAD request
@@ -117,9 +113,10 @@ def analyze_resume():
     # Handle preflight OPTIONS request
     if request.method == 'OPTIONS':
         response = jsonify({'message': 'OK'})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add('Access-Control-Allow-Headers', "*")
-        response.headers.add('Access-Control-Allow-Methods', "*")
+        response.headers.add("Access-Control-Allow-Origin", "https://resume-refiner-ai-eight.vercel.app")
+        response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+        response.headers.add('Access-Control-Allow-Methods', "GET,POST,OPTIONS")
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
         return response
     
     try:
@@ -263,28 +260,13 @@ def internal_error(e):
 def not_found(e):
     return jsonify({'error': 'Endpoint not found'}), 404
 
-# FIXED: Enhanced after_request handler for CORS
+# Add CORS headers to all responses
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin')
-    allowed_origins = [
-        'https://resume-refiner-ai-eight.vercel.app',
-        'https://resume-refiner-ai.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:5173'
-    ]
-    
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-    else:
-        response.headers.add('Access-Control-Allow-Origin', '*')
-    
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Origin', 'https://resume-refiner-ai-eight.vercel.app')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Allow-Credentials', 'true')
-    
-    # Log the response headers for debugging
-    logger.info(f"Response headers: {dict(response.headers)}")
     return response
 
 if __name__ == '__main__':
