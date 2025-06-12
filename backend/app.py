@@ -59,8 +59,11 @@ def validate_job_description(job_description):
     Validates if the job description is meaningful and appropriate.
     Returns (is_valid, message) tuple.
     """
-    if not job_description or len(job_description.strip()) < 50:
-        return False, "Job description is too short. Please provide a detailed job description."
+    if not job_description:
+        return False, "Job description is required"
+    
+    if len(job_description.strip()) < 50:
+        return False, "Job description too short"
     
     # Check for minimum required sections
     required_sections = ['responsibilities', 'requirements', 'qualifications']
@@ -68,11 +71,11 @@ def validate_job_description(job_description):
                      if re.search(rf'\b{section}\b', job_description.lower())]
     
     if len(found_sections) < 2:
-        return False, "Job description should include at least 2 of: responsibilities, requirements, or qualifications."
+        return False, "Missing required sections"
     
     # Check for minimum content length
     if len(job_description.split()) < 100:
-        return False, "Job description should be more detailed. Please provide at least 100 words."
+        return False, "Job description needs more details"
     
     # Check for inappropriate content
     inappropriate_patterns = [
@@ -83,9 +86,9 @@ def validate_job_description(job_description):
     
     for pattern in inappropriate_patterns:
         if re.search(pattern, job_description):
-            return False, "Job description contains inappropriate content or special characters."
+            return False, "Invalid content detected"
     
-    return True, "Job description is valid."
+    return True, "Job description is valid"
 
 # Add a root route to handle the HEAD request
 @app.route('/')
@@ -243,4 +246,4 @@ def after_request(response):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, timeout=120)  # Increased timeout to 120 seconds
