@@ -6,7 +6,7 @@ import AnalyzerPage from './components/AnalyzerPage';
 
 function App() {
   return (
-    <Router>
+    <Router basename="/resume-refiner-ai">
       <div className="min-h-screen bg-black text-white">
         <Header />
         <main>
